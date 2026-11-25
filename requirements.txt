@@ -28,6 +28,8 @@ opencv-python-headless>=4.9.0
 pillow>=10.1.0
 pytesseract>=0.3.10
 imutils>=0.5.4
+onnx>=1.15.0
+onnxruntime>=1.16.0
 
 # Data processing
 pandas>=2.1.0
