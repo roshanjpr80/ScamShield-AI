@@ -1,0 +1,52 @@
+{
+  "name": "smishing_cnn",
+  "version": "1.0.0",
+  "model_type": "transformer",
+  "framework": "onnx",
+  "description": "TextCNN for SMS phishing detection",
+  "training_date": "2026-11-24T09:24:56.901041Z",
+  "training_data_hash": "sms_scam_v1",
+  "metrics": {
+    "accuracy": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1": 1.0,
+    "auc": 1.0
+  },
+  "latency_ms": {
+    "p50": 10.0,
+    "p95": 20.0,
+    "p99": 50.0
+  },
+  "input_schema": [
+    {
+      "name": "input_ids",
+      "type": "INT64",
+      "shape": [
+        1,
+        200
+      ]
+    }
+  ],
+  "output_schema": [
+    {
+      "name": "output",
+      "type": "FLOAT",
+      "shape": [
+        1,
+        1
+      ]
+    }
+  ],
+  "tags": [
+    "production",
+    "smishing",
+    "sms"
+  ],
+  "author": "ml-pipeline",
+  "git_commit": "abc123",
+  "file_hash": "d411d3a4368a36a08cd9fb58cf055a70482cf17f3a5a74e4a83211fe20645127",
+  "file_size_bytes": 15399,
+  "stage": "production",
+  "ab_test_weight": 0.0
+}

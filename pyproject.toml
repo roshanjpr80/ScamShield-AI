@@ -1,0 +1,139 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel", "setuptools_scm>=8.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "scamshield-ai"
+version = "1.0.0"
+description = "Advanced Multi-Modal Fraud Detection System with Agentic AI Workflows"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "ScamShield AI Team"},
+]
+keywords = ["fraud", "detection", "ml", "ai", "nlp", "cv", "langchain", "fastapi"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+]
+requires-python = ">=3.8"
+dependencies = [
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
+    "python-multipart>=0.0.6",
+    "sqlalchemy[asyncio]>=2.0.23",
+    "aiosqlite>=0.19.0",
+    "asyncpg>=0.29.0",
+    "alembic>=1.13.0",
+    "python-jose[cryptography]>=3.3.0",
+    "passlib[bcrypt]>=1.7.4",
+    "pydantic>=2.5.0",
+    "pydantic-settings>=2.1.0",
+    "httpx>=0.25.2",
+    "websockets>=12.0",
+    "prometheus-client>=0.19.0",
+    "structlog>=23.2.0",
+    "numpy>=1.24.0",
+    "scikit-learn>=1.3.0",
+    "xgboost>=2.0.0",
+    "torch>=2.1.0",
+    "transformers>=4.36.0",
+    "sentence-transformers>=2.2.0",
+    "tensorflow>=2.15.0",
+    "keras>=2.15.0",
+    "opencv-python-headless>=4.9.0",
+    "pillow>=10.1.0",
+    "pytesseract>=0.3.10",
+    "imutils>=0.5.4",
+    "pandas>=2.1.0",
+    "openpyxl>=3.1.0",
+    "reportlab>=4.0.0",
+    "pdfplumber>=0.10.0",
+    "nltk>=3.8.0",
+    "spacy>=3.7.0",
+    "langchain>=0.0.350",
+    "langgraph>=0.0.1",
+    "tiktoken>=0.5.0",
+    "openai>=1.3.0",
+    "anthropic>=0.10.0",
+    "replicate>=0.20.0",
+    "chromadb>=0.4.20",
+    "pinecone-client>=2.2.0",
+    "qdrant-client>=1.6.0",
+    "weaviate-client>=4.0.0",
+    "mlflow>=2.9.0",
+    "optuna>=3.4.0",
+    "shap>=0.43.0",
+    "evidently>=0.4.0",
+    "streamlit>=1.28.0",
+    "plotly>=5.18.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.1.0",
+    "httpx>=0.25.0",
+    "aioresponses>=0.7.4",
+    "faker>=20.0.0",
+    "responses>=0.24.0",
+    "black>=23.0.0",
+    "flake8>=6.0.0",
+    "mypy>=1.5.0",
+    "pre-commit>=3.4.0",
+]
+docs = [
+    "sphinx>=7.0.0",
+    "sphinx-rtd-theme>=1.3.0",
+    "myst-parser>=2.0.0",
+]
+deploy = [
+    "gunicorn>=21.2.0",
+    "docker>=7.0.0",
+    "kubernetes>=28.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/yourusername/scamshield-ai"
+Documentation = "https://scamshield-ai.readthedocs.io"
+Repository = "https://github.com/yourusername/scamshield-ai.git"
+Issues = "https://github.com/yourusername/scamshield-ai/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["upishield_core*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+asyncio_mode = "auto"
+markers = [
+    "slow: marks tests as slow",
+    "integration: marks tests as integration tests",
+    "performance: marks performance benchmark tests",
+]
+
+[tool.black]
+line-length = 100
+target-version = ['py38', 'py39', 'py310', 'py311']
+include = '\.pyi?$'
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+
+[tool.ruff]
+line-length = 100
+select = ["E", "F", "W", "I"]
+target-version = "py311"

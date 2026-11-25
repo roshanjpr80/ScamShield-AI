@@ -1,0 +1,52 @@
+{
+  "name": "job_scam_cnn",
+  "version": "1.0.0",
+  "model_type": "transformer",
+  "framework": "onnx",
+  "description": "TextCNN for job scam detection",
+  "training_date": "2026-11-24T09:24:56.913570Z",
+  "training_data_hash": "job_scam_v1",
+  "metrics": {
+    "accuracy": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1": 1.0,
+    "auc": 1.0
+  },
+  "latency_ms": {
+    "p50": 10.0,
+    "p95": 20.0,
+    "p99": 50.0
+  },
+  "input_schema": [
+    {
+      "name": "input_ids",
+      "type": "INT64",
+      "shape": [
+        1,
+        200
+      ]
+    }
+  ],
+  "output_schema": [
+    {
+      "name": "output",
+      "type": "FLOAT",
+      "shape": [
+        1,
+        1
+      ]
+    }
+  ],
+  "tags": [
+    "production",
+    "job_scam",
+    "job"
+  ],
+  "author": "ml-pipeline",
+  "git_commit": "abc123",
+  "file_hash": "a67322f21d371010b2e5074624e3613c87b660cf3bfeb092ab15e758ffb17bb4",
+  "file_size_bytes": 15399,
+  "stage": "production",
+  "ab_test_weight": 0.0
+}

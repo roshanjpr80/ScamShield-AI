@@ -1,0 +1,52 @@
+{
+  "name": "xgb_fraud",
+  "version": "1.0.0",
+  "model_type": "xgb",
+  "framework": "onnx",
+  "description": "XGBoost fraud detection model for UPI transactions",
+  "training_date": "2026-11-24T09:24:56.875223Z",
+  "training_data_hash": "upi_fraud_v1",
+  "metrics": {
+    "accuracy": 0.9999,
+    "precision": 0.99,
+    "recall": 0.99,
+    "f1": 0.99,
+    "auc": 0.9999
+  },
+  "latency_ms": {
+    "p50": 2.5,
+    "p95": 5.0,
+    "p99": 10.0
+  },
+  "input_schema": [
+    {
+      "name": "input",
+      "type": "FLOAT",
+      "shape": [
+        1,
+        13
+      ]
+    }
+  ],
+  "output_schema": [
+    {
+      "name": "output",
+      "type": "FLOAT",
+      "shape": [
+        1,
+        1
+      ]
+    }
+  ],
+  "tags": [
+    "production",
+    "fraud",
+    "upi"
+  ],
+  "author": "ml-pipeline",
+  "git_commit": "abc123",
+  "file_hash": "6d97fb582f848f58e956935ab32a365bb958a1c1961defa56cd1df8c494ff63c",
+  "file_size_bytes": 20957,
+  "stage": "production",
+  "ab_test_weight": 0.0
+}
