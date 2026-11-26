@@ -5,8 +5,11 @@
 [![LangGraph](https://img.shields.io/badge/LangGraph-Agent-orange.svg)](https://langchain-ai.github.io/langgraph/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.1+-red.svg)](https://pytorch.org/)
 [![Streamlit](https://img.shields.io/badge/Streamlit-Dashboard-blue.svg)](https://streamlit.io/)
+[![GitHub](https://img.shields.io/badge/GitHub-roshanjpr80%2FScamShield--AI-black.svg)](https://github.com/roshanjpr80/ScamShield-AI)
 
 **Enterprise-grade multi-modal fraud detection platform** showcasing advanced ML/DL, NLP, CV, GenAI, and Agentic AI capabilities for fraud prevention and scam detection.
+
+**🔗 GitHub Repository:** https://github.com/roshanjpr80/ScamShield-AI
 
 ## 🎯 Project Overview
 
@@ -32,7 +35,7 @@ ScamShield AI is a comprehensive fraud detection system that combines multiple A
 
 ```bash
 # Clone repository
-git clone https://github.com/yourusername/scamshield-ai.git
+git clone https://github.com/roshanjpr80/ScamShield-AI.git
 cd scamshield-ai
 
 # Install dependencies
@@ -46,10 +49,10 @@ cp .env.example .env
 alembic upgrade head
 
 # Run API server
-python -m uvicorn scamshield.api.main:app --reload --port 8000
+python -m uvicorn upishield_core.api.main:app --reload --port 8000
 
-# Run Streamlit dashboard
-streamlit run scamshield/frontend/streamlit_app.py
+# Run Frontend dashboard
+cd frontend && npm run dev
 ```
 
 ### Docker Deployment
@@ -61,50 +64,52 @@ docker-compose up -d
 Access services:
 - API: http://localhost:8000
 - API Docs: http://localhost:8000/docs
-- Streamlit: http://localhost:8501
-- MLflow: http://localhost:5000
+- Frontend (Next.js): http://localhost:3000
+- Grafana: http://localhost:3001 (admin/admin)
+- Prometheus: http://localhost:9090
 
 ## 📁 Project Structure
 
 ```
 scamshield-ai/
-├── scamshield/
+├── upishield_core/
 │   ├── api/                  # FastAPI backend
 │   │   ├── main.py          # App entry point
 │   │   └── routes/          # REST API endpoints
-│   │       ├── auth.py      # Authentication (JWT)
-│   │       ├── transactions.py
-│   │       ├── detections.py
-│   │       ├── alerts.py
-│   │       ├── models.py    # MLOps endpoints
+│   │       ├── health.py
+│   │       ├── scoring.py
+│   │       ├── detection.py
+│   │       ├── models.py
 │   │       ├── analytics.py
-│   │       └── scam_library.py
-│   ├── core/                 # Core ML/DL models
-│   │   ├── text_detector.py        # DistilBERT + ensemble
-│   │   ├── transaction_detector.py # XGBoost + sklearn
-│   │   ├── document_detector.py    # CV forensics
-│   │   └── inference_pipeline.py   # 5-agent workflow
+│   │       ├── alerts.py
+│   │       ├── cases.py
+│   │       └── ai_assistant.py
+│   ├── cli/                  # Typer CLI commands
+│   ├── models/               # ML model wrappers
 │   ├── services/             # Business logic
-│   │   ├── upi_parser.py         # SMS parser
-│   │   └── risk_scorer.py        # Risk scoring engine
-│   ├── mlops/                # ML operations
-│   │   ├── training_pipeline.py  # Training automation
-│   │   ├── mlflow_integration.py # Experiment tracking
-│   │   └── drift_detection.py    # Drift monitoring
-│   ├── frontend/             # Streamlit dashboards
-│   │   └── streamlit_app.py     # Interactive UI
 │   ├── database/             # SQLAlchemy ORM
+│   ├── auth/                 # JWT authentication
 │   ├── schemas/              # Pydantic models
-│   ├── data/                 # Data generation
-│   └── observability/        # Metrics & logging
-├── tests/                    # Comprehensive test suite
+│   ├── core/                 # Configuration
+│   └── tests/                # Pytest suite (51 tests)
+├── frontend/                 # Next.js 14 Dashboard
+│   ├── src/app/             # App Router pages
+│   ├── src/components/      # React components
+│   ├── src/lib/             # API client, utilities
+│   └── package.json
+├── models/                   # ONNX model files
+├── data/                     # Generated datasets
+├── prometheus/               # Prometheus config
+├── grafana/                  # Grafana dashboards
+├── alembic/                  # Database migrations
 ├── deploy/                   # Deployment configs
 │   ├── docker-compose.yml
 │   ├── render.yaml
 │   └── kubernetes/
-├── alembic/                  # Database migrations
 ├── requirements.txt
 ├── pyproject.toml
+├── docker-compose.yml
+├── render.yaml
 └── README.md
 ```
 
@@ -140,62 +145,101 @@ scamshield-ai/
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
+| GET | /health | Health check |
+| GET | /ready | Readiness probe |
+| GET | /metrics | Prometheus metrics |
 | POST | /api/v1/auth/login | User login |
-| POST | /api/v1/auth/register | User registration |
+| POST | /api/v1/auth/refresh | Refresh token |
+| GET | /api/v1/auth/me | Current user info |
+| POST | /api/v1/score | Score transaction |
+| POST | /api/v1/score/batch | Batch score transactions |
 | GET | /api/v1/transactions | List transactions |
-| POST | /api/v1/detections/text | Text scam detection |
-| POST | /api/v1/detections/transaction | Transaction fraud detection |
-| POST | /api/v1/detections/multimodal | Multi-modal detection |
-| GET | /api/v1/alerts | Get fraud alerts |
-| POST | /api/v1/models/train | Trigger model training |
-| GET | /api/v1/analytics/overview | Dashboard overview |
-| GET | /api/v1/scam-library | Scam knowledge base |
+| GET | /api/v1/transactions/{id} | Get transaction details |
+| POST | /api/v1/detect/sms | SMS scam detection |
+| POST | /api/v1/detect/job-scam | Job scam detection |
+| GET | /api/v1/detections/sms | List SMS detections |
+| GET | /api/v1/detections/job | List job detections |
+| GET | /api/v1/models | List loaded models |
+| GET | /api/v1/models/{name} | Model details |
+| POST | /api/v1/models/reload | Reload models |
+| GET | /api/v1/analytics/summary | Dashboard summary |
+| GET | /api/v1/analytics/trends | Fraud trends |
+| GET | /api/v1/analytics/risk-distribution | Risk score histogram |
+| GET | /api/v1/alerts | List alerts |
+| GET | /api/v1/alerts/{id} | Alert details |
+| PATCH | /api/v1/alerts/{id} | Update alert status |
+| GET | /api/v1/cases | List cases |
+| POST | /api/v1/cases | Create case |
+| GET | /api/v1/cases/{id} | Case details |
+| POST | /api/v1/ai/query | AI assistant query |
+| POST | /api/v1/ai/generate-report | Generate fraud report |
 
-## 📊 Dashboard Pages
+## 📊 Dashboard Pages (Next.js 14)
 
-1. **Dashboard Overview** - Key metrics, fraud trends, recent alerts
-2. **Transactions** - CRUD operations, filtering, bulk actions
-3. **Fraud Detection** - Text, transaction, document, multi-modal inputs
-4. **Alerts Management** - Alert triage, bulk updates, investigations
-5. **Models (MLOps)** - Version management, training jobs, drift monitoring
-6. **Analytics** - Trends, geographic analysis, time series, performance
-7. **Scam Library** - Knowledge base with search and add functionality
-8. **Settings** - Profile, thresholds, system configuration
+1. **Dashboard Overview** - Key metrics, fraud trends, recent alerts, risk distribution charts
+2. **Transactions** - Searchable table, transaction details, score breakdown, export
+3. **SMS Detection** - Paste SMS, instant verdict, factor analysis, explanation
+4. **Job Scam Detection** - Paste job description, risk analysis, red flags
+5. **Alerts Management** - Filterable feed, severity badges, acknowledge/assign actions
+6. **Cases** - Investigation workflow, timeline, evidence, notes
+7. **Models** - Model performance monitoring, version info, reload trigger
+8. **Analytics** - Trends, geographic analysis, time series, model performance
+9. **Settings** - User profile, API keys, thresholds, system config
 
 ## 🧪 Running Tests
 
 ```bash
-# Run all tests
-pytest tests/ -v
+# Run all tests (51 tests)
+pytest upishield_core/tests/ -v
 
 # Run specific test categories
-pytest tests/test_upi_parser.py -v
-pytest tests/test_risk_scorer.py -v
-pytest tests/test_data_generator.py -v
+pytest upishield_core/tests/test_features.py -v
+pytest upishield_core/tests/test_ensemble.py -v
+pytest upishield_core/tests/test_decision_engine.py -v
 
 # With coverage
-pytest --cov=scamshield --cov-report=html
+pytest upishield_core/tests/ --cov=upishield_core --cov-report=html
 ```
 
 ## 🚢 Deployment
 
-### Local Development
+### Local Development (Docker Compose)
 ```bash
-python -m uvicorn scamshield.api.main:app --reload
-streamlit run scamshield/frontend/streamlit_app.py
+docker-compose up -d
+# API: http://localhost:8000
+# Frontend: http://localhost:3000
+# Grafana: http://localhost:3001
 ```
+
+### Local Development (Manual)
+```bash
+# Terminal 1 - Backend
+python -m venv .venv && .venv\Scripts\activate
+pip install -r requirements.txt
+python -m uvicorn upishield_core.api.main:app --reload --port 8000
+
+# Terminal 2 - Frontend
+cd frontend && npm install && npm run dev
+```
+
+### Production (Render.com - One Click)
+1. Push to GitHub
+2. Go to [Render Dashboard](https://dashboard.render.com) → New + → Blueprint
+3. Select repository, click Apply
+4. Set `SECRET_KEY` in API service Environment
+5. Done! Auto-deploys on every push
 
 ### Production (Docker)
 ```bash
-docker-compose -f deploy/docker-compose.prod.yml up -d
+docker build -t scamshield-api .
+docker build -t scamshield-frontend ./frontend
 ```
 
-### Cloud Deployment
-See [DEPLOYMENT.md](DEPLOYMENT.md) for detailed instructions:
-- Render.com (one-click deploy)
-- AWS ECS/Fargate
-- Google Cloud Run
-- Azure Container Apps
+### Cloud Deployment Options
+- **Render.com** - Blueprint deploy (configured)
+- **AWS ECS/Fargate** - Container deployment
+- **Google Cloud Run** - Serverless containers
+- **Azure Container Apps** - Managed containers
 
 ## 📈 Skills Demonstrated
 
@@ -270,9 +314,10 @@ This project showcases expertise in:
 - ✅ Infrastructure as Code
 
 ### Frontend & Visualization
-- ✅ Streamlit dashboards
-- ✅ Plotly interactive charts
-- ✅ Responsive UI design
+- ✅ Next.js 14 (App Router, React 18)
+- ✅ TanStack Query + Table
+- ✅ Recharts interactive charts
+- ✅ Tailwind CSS responsive UI
 - ✅ Real-time data visualization
 
 ### Security & Compliance
@@ -284,10 +329,13 @@ This project showcases expertise in:
 ## 📚 References
 
 - [FastAPI Documentation](https://fastapi.tiangolo.com/)
-- [LangGraph Agents](https://langchain-ai.github.io/langgraph/)
+- [Next.js Documentation](https://nextjs.org/docs)
+- [ONNX Runtime](https://onnxruntime.ai/)
+- [XGBoost](https://xgboost.readthedocs.io/)
 - [HuggingFace Transformers](https://huggingface.co/transformers/)
-- [MLflow Guide](https://mlflow.org/docs/latest/)
-- [Streamlit Documentation](https://docs.streamlit.io/)
+- [Prometheus](https://prometheus.io/)
+- [Grafana](https://grafana.com/)
+- [Render.com Blueprint](https://render.com/docs/blueprint-spec)
 
 ## 🤝 Contributing
 
@@ -307,4 +355,4 @@ Built with ❤️ for career showcase and learning purposes.
 
 ---
 
-**Keywords**: Fraud Detection, ML/AI, Python, FastAPI, PyTorch, Transformers, LangChain, LangGraph, MLOps, Streamlit, Computer Vision, NLP, Generative AI, Agentic AI, Portfolio Project
+**Keywords**: Fraud Detection, ML/AI, Python, FastAPI, Next.js, React, ONNX Runtime, XGBoost, Transformers, MLOps, Prometheus, Grafana, Docker, Render.com, Portfolio Project
