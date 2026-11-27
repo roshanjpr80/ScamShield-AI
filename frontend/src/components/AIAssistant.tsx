@@ -3,6 +3,53 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { cn } from '@/lib/utils'
 import { apiClient } from '@/lib/api'
+
+// Type declarations for Web Speech API
+interface SpeechRecognition extends EventTarget {
+  continuous: boolean
+  interimResults: boolean
+  lang: string
+  start(): void
+  stop(): void
+  onresult: (event: SpeechRecognitionEvent) => void
+  onerror: (event: SpeechRecognitionErrorEvent) => void
+  onend: () => void
+}
+
+interface SpeechRecognitionEvent extends Event {
+  results: SpeechRecognitionResultList
+  resultIndex: number
+}
+
+interface SpeechRecognitionResultList {
+  length: number
+  item(index: number): SpeechRecognitionResult
+  [index: number]: SpeechRecognitionResult
+}
+
+interface SpeechRecognitionResult {
+  length: number
+  item(index: number): SpeechRecognitionAlternative
+  [index: number]: SpeechRecognitionAlternative
+  isFinal: boolean
+}
+
+interface SpeechRecognitionAlternative {
+  transcript: string
+  confidence: number
+}
+
+interface SpeechRecognitionErrorEvent extends Event {
+  error: string
+  message: string
+}
+
+declare global {
+  interface Window {
+    SpeechRecognition: new () => SpeechRecognition
+    webkitSpeechRecognition: new () => SpeechRecognition
+  }
+}
 import {
   Bot,
   X,
@@ -33,7 +80,6 @@ import {
   Settings,
   BarChart2,
   ShieldCheck,
-  Warning,
   Mail,
   Link,
   Minimize2,
@@ -587,7 +633,7 @@ export function AIAssistant() {
     if (session) {
       setCurrentSessionId(session.id)
       setMessages(session.messages)
-      setLanguage(session.language)
+      setLanguage(session.language as Language)
       setShowQuickActions(false)
     }
   }, [sessions])
@@ -658,7 +704,7 @@ export function AIAssistant() {
   // ============================================================================
 
   const performAction = useCallback(async (
-    actionType: Message['metadata']['action'],
+    actionType: NonNullable<Message['metadata']>['action'],
     userMessage: string
   ): Promise<string> => {
     setIsLoading(true)
@@ -713,7 +759,7 @@ Would you like me to score a specific transaction? Provide the details and I'll 
           if (backendStatus === 'connected') {
             try {
               const scams = await apiClient.listScams(20, 0)
-              const categories = [...new Set(scams.scams.map(s => s.category))]
+              const categories = Array.from(new Set(scams.scams.map(s => s.category)))
               return `**ScamShield Pattern Library** (${scams.total} patterns)
 
 **Categories**: ${categories.join(', ')}
@@ -1202,7 +1248,7 @@ Or use the **Quick Actions** buttons below for common tasks!`
     try {
       // Determine action type from message
       const lower = userMessage.toLowerCase()
-      let actionType: Message['metadata']['action'] = 'scoring'
+      let actionType: NonNullable<Message['metadata']>['action'] = 'transaction_analysis'
 
       // Check for definition/educational questions first
       const isDefinitionQuestion = lower.startsWith('what is') || lower.startsWith('what are') ||
@@ -1674,7 +1720,7 @@ Or use the **Quick Actions** buttons below for common tasks!`
                     <p className="text-xs text-gray-500 truncate mt-0.5">
                       {session.messages.length} messages • {session.updatedAt.toLocaleDateString()}
                     </p>
-                    <span className="inline-block mt-1 px-1.5 py-0.5 text-xs bg-gray-100 rounded">{LANGUAGES[session.language].flag}</span>
+                    <span className="inline-block mt-1 px-1.5 py-0.5 text-xs bg-gray-100 rounded">{LANGUAGES[session.language as Language].flag}</span>
                   </button>
                 ))}
               </div>

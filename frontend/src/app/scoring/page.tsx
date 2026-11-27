@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Shield, Search, RefreshCw, AlertTriangle, CheckCircle, XCircle, AlertCircle, Eye, Download, Filter, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Sidebar } from '@/components/Sidebar'
@@ -33,7 +33,7 @@ export default function LiveScoringPage() {
   const [error, setError] = useState<string | null>(null)
 
   // Mock transaction templates for adding new transactions
-  const transactionTemplates = [
+  const transactionTemplates = useMemo(() => [
     {
       txn_id: 'TXN_' + Date.now(),
       payer_vpa: 'user@upi',
@@ -70,7 +70,7 @@ export default function LiveScoringPage() {
       client_ip: '172.16.0.1',
       merchant_category: 'peer_transfer',
     },
-  ]
+  ], [])
 
   const scoreTransaction = useCallback(async (txn: LiveTransaction) => {
     setScoring(txn.txn_id)
@@ -119,7 +119,7 @@ export default function LiveScoringPage() {
     }
   }, [transactions])
 
-  const addMockTransaction = () => {
+  const addMockTransaction = useCallback(() => {
     const template = transactionTemplates[Math.floor(Math.random() * transactionTemplates.length)]
     const newTxn: LiveTransaction = {
       ...template,
@@ -128,9 +128,9 @@ export default function LiveScoringPage() {
       status: 'pending',
     }
     setTransactions(prev => [newTxn, ...prev.slice(0, 49)])
-  }
+  }, [transactionTemplates])
 
-  const addHighRiskTransaction = () => {
+  const addHighRiskTransaction = useCallback(() => {
     const newTxn: LiveTransaction = {
       txn_id: 'TXN_' + Date.now(),
       payer_vpa: 'suspicious@upi',
@@ -145,7 +145,7 @@ export default function LiveScoringPage() {
       status: 'pending',
     }
     setTransactions(prev => [newTxn, ...prev.slice(0, 49)])
-  }
+  }, [])
 
   useEffect(() => {
     if (autoScore) {
@@ -160,7 +160,7 @@ export default function LiveScoringPage() {
       }, 3000)
       return () => clearInterval(interval)
     }
-  }, [autoScore, scoreTransaction])
+  }, [autoScore, scoreTransaction, addMockTransaction])
 
   const filteredTransactions = transactions.filter(txn => {
     if (filterDecision === 'all') return true
@@ -456,7 +456,7 @@ export default function LiveScoringPage() {
                       <td colSpan={10} className="text-center py-12 text-gray-500">
                         <Shield className="h-12 w-12 mx-auto text-gray-300 mb-2" />
                         <p>No transactions found</p>
-                        <p className="text-sm mt-1">Click "Add Transaction" to start scoring</p>
+                        <p className="text-sm mt-1">Click &ldquo;Add Transaction&rdquo; to start scoring</p>
                       </td>
                     </tr>
                   )}

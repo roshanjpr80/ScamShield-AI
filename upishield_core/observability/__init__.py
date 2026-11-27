@@ -29,6 +29,12 @@ from upishield_core.observability.tracing import (
     traced,
 )
 
+# Re-export SpanKind for convenience
+try:
+    from opentelemetry.trace import SpanKind
+except ImportError:
+    SpanKind = None
+
 __all__ = [
     # Metrics
     "REGISTRY",
@@ -56,4 +62,5 @@ __all__ = [
     "SpanAttributes",
     "shutdown_tracing",
     "ensure_tracing",
+    "SpanKind",
 ]

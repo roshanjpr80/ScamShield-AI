@@ -147,7 +147,7 @@ export default function AlertsPage() {
     if (activeTab === 'alerts') {
       fetchAlerts()
     }
-  }, [filters.severity, filters.status, fetchAlerts])
+  }, [activeTab, filters.severity, filters.status, fetchAlerts])
 
   const getSeverityBadge = (severity: string) => {
     const variants = {

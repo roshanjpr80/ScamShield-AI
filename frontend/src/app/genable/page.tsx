@@ -85,23 +85,23 @@ export default function GenablePage() {
       let sources: any[] = []
 
       stream.onToken((token, isFinal) => {
-        setMessages(prev => {
+        setMessages((prev: Message[]) => {
           const lastMsg = prev[prev.length - 1]
           if (lastMsg?.role === 'assistant' && lastMsg.id === messageId + '_stream') {
             return prev.slice(0, -1).concat({
               ...lastMsg,
               content: (lastMsg as any).content + token,
-            })
+            } as Message)
           } else {
             return [...prev, {
               id: messageId + '_stream',
-              role: 'assistant',
+              role: 'assistant' as const,
               content: assistantContent + token,
               timestamp: new Date(),
-            }].slice(0, -1).concat([{
+            } as Message].slice(0, -1).concat([{
               ...prev[prev.length - 1],
               content: (prev[prev.length - 1] as any).content + token,
-            }])
+            } as Message])
           }
         })
       })
@@ -152,7 +152,7 @@ export default function GenablePage() {
       <div className="min-h-screen bg-gray-50">
         <Sidebar />
         <div className="ml-64">
-          <Header title="Genable AI Assistant" subtitle="Your fraud detection and security assistant" />
+          <Header sidebarCollapsed={false} />
 
           <main className="p-6 lg:p-8">
             <div className="max-w-4xl mx-auto">
@@ -215,7 +215,7 @@ export default function GenablePage() {
     <div className="min-h-screen bg-gray-50">
       <Sidebar />
       <div className="ml-64">
-        <Header title="Genable AI Assistant" subtitle="Fraud detection and security assistant" />
+        <Header sidebarCollapsed={false} />
 
         <main className="p-6 lg:p-8">
           <div className="max-w-4xl mx-auto">

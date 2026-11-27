@@ -6,6 +6,7 @@ Sub-50ms p99 latency with ONNX Runtime INT8 quantization.
 """
 
 import asyncio
+import os
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -42,6 +43,33 @@ from upishield_core.api.rag import (
     RAGResponse,
     get_rag,
 )
+from upishield_core.api.ai.agentic_endpoints import router as agentic_router, close_workflow
+from upishield_core.api.ai.rag_endpoints import router as rag_router
+from upishield_core.api.websocket.endpoints import router as websocket_router, init_websocket, close_websocket
+from upishield_core.streaming import (
+    init_stream_processor,
+    close_stream_processor,
+    init_kafka_producer,
+    close_kafka_producer,
+    get_stream_processor,
+    init_mock_kafka_producer,
+    close_mock_kafka_producer,
+    get_mock_kafka_producer,
+)
+from upishield_core.observability import (
+    init_tracing,
+    shutdown_tracing,
+    ensure_tracing,
+    get_tracer,
+    traced,
+    span,
+    inject_correlation_id,
+    extract_correlation_id,
+    set_correlation_id,
+    SpanAttributes,
+    SpanKind,
+)
+from opentelemetry import trace
 
 logger = structlog.get_logger(__name__)
 
@@ -79,6 +107,27 @@ async def lifespan(app: FastAPI):
 
     logger.info("starting_up", version="0.1.0")
 
+    # Initialize OpenTelemetry tracing
+    try:
+        otlp_endpoint = os.getenv("OTLP_ENDPOINT")
+        jaeger_endpoint = os.getenv("JAEGER_ENDPOINT")
+        zipkin_endpoint = os.getenv("ZIPKIN_ENDPOINT")
+        console_export = os.getenv("OTEL_CONSOLE_EXPORT", "false").lower() == "true"
+        sample_rate = float(os.getenv("OTEL_SAMPLE_RATE", "1.0"))
+
+        init_tracing(
+            service_name="upishield",
+            service_version="0.1.0",
+            otlp_endpoint=otlp_endpoint,
+            jaeger_endpoint=jaeger_endpoint,
+            zipkin_endpoint=zipkin_endpoint,
+            console_export=console_export,
+            sample_rate=sample_rate,
+        )
+        logger.info("tracing_initialized", otlp=bool(otlp_endpoint), jaeger=bool(jaeger_endpoint), zipkin=bool(zipkin_endpoint))
+    except Exception as e:
+        logger.warning("tracing_unavailable", error=str(e))
+
     # Initialize model registry
     app_state["registry"] = ModelRegistry("./models")
 
@@ -110,11 +159,34 @@ async def lifespan(app: FastAPI):
 
     # Initialize RAG knowledge base (optional)
     try:
-        app_state["rag"] = get_rag()
-        if app_state["rag"]._initialized:
-            logger.info("rag_initialized", chunks=len(app_state["rag"].chunks))
+        from upishield_core.ai import get_knowledge_base
+        app_state["rag"] = get_knowledge_base()
+        success = app_state["rag"].initialize(seed_data=True)
+        if success:
+            logger.info("rag_initialized", chunks=app_state["rag"].vector_store.count())
     except Exception as e:
         logger.warning("rag_unavailable", error=str(e))
+
+    # Initialize WebSocket manager
+    await init_websocket()
+
+    # Initialize Kafka producer and stream processor (optional)
+    # Use mock Kafka for development without broker
+    import os
+    use_mock_kafka = os.getenv("USE_MOCK_KAFKA", "true").lower() == "true"
+
+    try:
+        if use_mock_kafka:
+            await init_mock_kafka_producer()
+            logger.info("mock_kafka_producer_initialized")
+        else:
+            await init_kafka_producer()
+            logger.info("kafka_producer_initialized")
+
+        await init_stream_processor(use_mock=use_mock_kafka)
+        logger.info("stream_processor_initialized")
+    except Exception as e:
+        logger.warning("streaming_unavailable", error=str(e))
 
     yield
 
@@ -122,6 +194,17 @@ async def lifespan(app: FastAPI):
     logger.info("shutting_down")
     if app_state["feature_store"]:
         await app_state["feature_store"].close()
+    await close_workflow()
+    await close_websocket()
+    await close_stream_processor()
+    import os
+    use_mock_kafka = os.getenv("USE_MOCK_KAFKA", "true").lower() == "true"
+    if use_mock_kafka:
+        await close_mock_kafka_producer()
+    else:
+        await close_kafka_producer()
+    # Shutdown tracing
+    await shutdown_tracing()
 
 
 app = FastAPI(
@@ -143,11 +226,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Include routers
+app.include_router(agentic_router)
+app.include_router(rag_router)
+app.include_router(websocket_router)
 
-# Request timing middleware
+
+# Request timing middleware with correlation ID propagation
 @app.middleware("http")
 async def timing_middleware(request: Request, call_next):
     start_time = time.perf_counter()
+
+    # Extract correlation ID from incoming headers
+    correlation_id = extract_correlation_id(dict(request.headers))
+    if correlation_id:
+        set_correlation_id(correlation_id)
+
+    # Add correlation ID to response headers
     response = await call_next(request)
     duration = time.perf_counter() - start_time
 
@@ -157,7 +252,16 @@ async def timing_middleware(request: Request, call_next):
         method=request.method, endpoint=request.url.path, status=response.status_code
     ).inc()
 
+    # Inject correlation ID into response headers
     response.headers["X-Process-Time"] = f"{duration:.4f}"
+    inject_correlation_id(dict(response.headers))
+    # Actually set the headers on the response
+    span = trace.get_current_span()
+    if span and span.get_span_context().trace_id:
+        trace_id = format(span.get_span_context().trace_id, "032x")
+        response.headers["x-trace-id"] = trace_id
+        response.headers["x-correlation-id"] = trace_id[:16]
+
     return response
 
 
@@ -204,6 +308,7 @@ async def metrics():
 
 # Scoring endpoints
 @app.post("/api/v1/score", response_model=ScoreResponse, tags=["Scoring"])
+@traced("score_transaction", kind=SpanKind.SERVER, attributes={"service": "scoring", "endpoint": "/api/v1/score"})
 async def score_transaction(
     request: ScoreRequest,
     background_tasks: BackgroundTasks,
@@ -263,6 +368,7 @@ async def score_transaction(
 
 
 @app.post("/api/v1/score/batch", response_model=BatchScoreResponse, tags=["Scoring"])
+@traced("score_batch", kind=SpanKind.SERVER, attributes={"service": "scoring", "endpoint": "/api/v1/score/batch"})
 async def score_batch(request: BatchScoreRequest, background_tasks: BackgroundTasks):
     """
     Score multiple transactions in a single request.
@@ -495,6 +601,7 @@ class TextDetectionResponse(BaseModel):
 
 
 @app.post("/api/v1/detect/sms", response_model=TextDetectionResponse, tags=["Detection"])
+@traced("detect_sms_scam", kind=SpanKind.SERVER, attributes={"service": "detection", "endpoint": "/api/v1/detect/sms"})
 async def detect_sms_scam(request: TextDetectionRequest):
     """Detect SMS/Phishing scams from text using ONNX TextCNN."""
     start_time = time.perf_counter()
@@ -528,6 +635,7 @@ async def detect_sms_scam(request: TextDetectionRequest):
 
 
 @app.post("/api/v1/detect/job-scam", response_model=TextDetectionResponse, tags=["Detection"])
+@traced("detect_job_scam", kind=SpanKind.SERVER, attributes={"service": "detection", "endpoint": "/api/v1/detect/job-scam"})
 async def detect_job_scam(request: TextDetectionRequest):
     """Detect job scam from text description using ONNX TextCNN."""
     start_time = time.perf_counter()
@@ -584,6 +692,7 @@ class MultimodalDetectionResponse(BaseModel):
 @app.post(
     "/api/v1/detect/multimodal", response_model=MultimodalDetectionResponse, tags=["Detection"]
 )
+@traced("detect_multimodal", kind=SpanKind.SERVER, attributes={"service": "detection", "endpoint": "/api/v1/detect/multimodal"})
 async def detect_multimodal(request: MultimodalDetectionRequest):
     """Multi-modal fraud detection combining transaction, text, and image analysis."""
     start_time = time.perf_counter()
@@ -662,6 +771,148 @@ async def detect_multimodal(request: MultimodalDetectionRequest):
         raise HTTPException(status_code=500, detail="Multi-modal detection failed")
 
 
+# Streaming endpoints
+@app.get("/api/v1/streaming/metrics", tags=["Streaming"])
+async def get_streaming_metrics():
+    """Get stream processor metrics."""
+    import os
+    use_mock_kafka = os.getenv("USE_MOCK_KAFKA", "true").lower() == "true"
+
+    processor = get_stream_processor()
+    if not processor:
+        return {"error": "Stream processor not initialized", "state": "unavailable"}
+
+    result = processor.get_metrics()
+
+    # Add producer metrics
+    if use_mock_kafka:
+        mock_producer = get_mock_kafka_producer()
+        if mock_producer:
+            result["producer"] = mock_producer.get_metrics()
+    else:
+        from upishield_core.streaming import get_kafka_producer
+        producer = get_kafka_producer()
+        if producer:
+            result["producer"] = producer.get_metrics()
+
+    return result
+
+
+@app.get("/api/v1/streaming/health", tags=["Streaming"])
+async def get_streaming_health():
+    """Get stream processor health."""
+    import os
+    use_mock_kafka = os.getenv("USE_MOCK_KAFKA", "true").lower() == "true"
+
+    processor = get_stream_processor()
+    if not processor:
+        return {"status": "unavailable", "state": "unavailable"}
+
+    health = {
+        "status": "healthy" if processor.state.value == "running" else "unhealthy",
+        "state": processor.state.value,
+        "metrics": processor.get_metrics(),
+    }
+
+    if use_mock_kafka:
+        mock_producer = get_mock_kafka_producer()
+        if mock_producer:
+            health["producer"] = mock_producer.get_metrics()
+    else:
+        from upishield_core.streaming import get_kafka_producer
+        producer = get_kafka_producer()
+        if producer:
+            health["producer"] = producer.get_metrics()
+
+    return health
+
+
+@app.post("/api/v1/streaming/test-event", tags=["Streaming"])
+async def send_test_streaming_event(
+    event_type: str = "transaction",
+    payload: Optional[Dict] = None,
+    correlation_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+):
+    """Send a test event to streaming (mock or real)."""
+    import os
+    use_mock_kafka = os.getenv("USE_MOCK_KAFKA", "true").lower() == "true"
+
+    if not payload:
+        payload = {"test": True, "timestamp": datetime.utcnow().isoformat()}
+
+    try:
+        if use_mock_kafka:
+            from upishield_core.streaming.mock_kafka import (
+                MockKafkaEvent,
+                EventType,
+                EventPriority,
+                create_mock_transaction_event,
+                create_mock_fraud_alert_event,
+                create_mock_scoring_result_event,
+            )
+
+            if event_type == "transaction":
+                event = await create_mock_transaction_event(payload, correlation_id, user_id)
+            elif event_type == "fraud_alert":
+                event = await create_mock_fraud_alert_event(payload, correlation_id, user_id)
+            elif event_type == "scoring_result":
+                event = await create_mock_scoring_result_event(payload, correlation_id, user_id)
+            else:
+                event = MockKafkaEvent(
+                    event_type=EventType(event_type),
+                    payload=payload,
+                    correlation_id=correlation_id,
+                    user_id=user_id,
+                )
+
+            mock_producer = get_mock_kafka_producer()
+            if not mock_producer:
+                return {"error": "Mock Kafka producer not initialized"}
+
+            # Send to the topic that the consumer is listening to
+            target_topic = "transactions" if event_type == "transaction" else "scoring-requests"
+            await mock_producer.send(target_topic, event)
+            return {"status": "sent", "event_id": event.event_id, "mode": "mock", "topic": target_topic}
+        else:
+            from upishield_core.streaming import (
+                KafkaEvent,
+                EventType,
+                EventPriority,
+                create_transaction_event,
+                create_fraud_alert_event,
+                create_scoring_result_event,
+                get_kafka_producer,
+            )
+
+            if event_type == "transaction":
+                event = await create_transaction_event(payload, correlation_id, user_id)
+            elif event_type == "fraud_alert":
+                event = await create_fraud_alert_event(payload, correlation_id, user_id)
+            elif event_type == "scoring_result":
+                event = await create_scoring_result_event(payload, correlation_id, user_id)
+            else:
+                event = KafkaEvent(
+                    event_type=EventType(event_type),
+                    payload=payload,
+                    correlation_id=correlation_id,
+                    user_id=user_id,
+                )
+
+            producer = get_kafka_producer()
+            if not producer:
+                return {"error": "Kafka producer not initialized"}
+
+            # Send to the topic that the consumer is listening to
+            target_topic = "transactions" if event_type == "transaction" else "scoring-requests"
+            await producer.send(target_topic, event)
+            return {"status": "sent", "event_id": event.event_id, "mode": "real", "topic": target_topic}
+
+    except Exception as e:
+        logger.error("test_event_failed", error=str(e))
+        return {"error": str(e), "mode": "mock" if use_mock_kafka else "real"}
+
+
 # Analytics endpoints
 @app.get("/api/v1/analytics/overview", tags=["Analytics"])
 async def get_analytics_overview():
@@ -726,6 +977,46 @@ async def get_geography():
             {"state": "Uttar Pradesh", "transactions": 8765, "fraud_rate": 0.0023},
             {"state": "West Bengal", "transactions": 7654, "fraud_rate": 0.0026},
         ]
+    }
+
+
+@app.get("/api/v1/analytics/merchant-risk", tags=["Analytics"])
+async def get_merchant_risk(limit: int = 20):
+    """Get top risky merchants by risk score."""
+    # In production, query from database with aggregations
+    return {
+        "merchants": [
+            {"merchant": "crypto_exchange@upi", "risk_score": 0.85, "volume": 12400, "fraud_count": 1054, "category": "crypto"},
+            {"merchant": "gaming_site@upi", "risk_score": 0.72, "volume": 8900, "fraud_count": 641, "category": "gaming"},
+            {"merchant": "new_merchant@upi", "risk_score": 0.68, "volume": 5600, "fraud_count": 381, "category": "new"},
+            {"merchant": "electronics@upi", "risk_score": 0.45, "volume": 23400, "fraud_count": 1053, "category": "electronics"},
+            {"merchant": "fashion_store@upi", "risk_score": 0.32, "volume": 18200, "fraud_count": 582, "category": "fashion"},
+            {"merchant": "food_delivery@upi", "risk_score": 0.28, "volume": 34500, "fraud_count": 966, "category": "food"},
+            {"merchant": "ride_sharing@upi", "risk_score": 0.22, "volume": 28900, "fraud_count": 636, "category": "transport"},
+            {"merchant": "grocery_store@upi", "risk_score": 0.15, "volume": 45600, "fraud_count": 684, "category": "grocery"},
+            {"merchant": "pharmacy@upi", "risk_score": 0.12, "volume": 12300, "fraud_count": 148, "category": "healthcare"},
+            {"merchant": "utility_bills@upi", "risk_score": 0.08, "volume": 56700, "fraud_count": 454, "category": "utilities"},
+        ][:limit]
+    }
+
+
+@app.get("/api/v1/analytics/device-risk", tags=["Analytics"])
+async def get_device_risk(limit: int = 20):
+    """Get device risk profiles by device type."""
+    # In production, query from database with aggregations
+    return {
+        "devices": [
+            {"device_type": "Android (Rooted)", "risk_score": 0.78, "count": 2100, "fraud_count": 1638, "os": "android", "is_rooted": True},
+            {"device_type": "iOS (Jailbroken)", "risk_score": 0.72, "count": 890, "fraud_count": 641, "os": "ios", "is_jailbroken": True},
+            {"device_type": "Android (VPN)", "risk_score": 0.55, "count": 5600, "fraud_count": 3080, "os": "android", "has_vpn": True},
+            {"device_type": "Web (Tor)", "risk_score": 0.89, "count": 340, "fraud_count": 303, "os": "web", "has_tor": True},
+            {"device_type": "iOS (Normal)", "risk_score": 0.12, "count": 45200, "fraud_count": 5424, "os": "ios", "is_normal": True},
+            {"device_type": "Android (Normal)", "risk_score": 0.18, "count": 38900, "fraud_count": 7002, "os": "android", "is_normal": True},
+            {"device_type": "Windows (Normal)", "risk_score": 0.25, "count": 12400, "fraud_count": 3100, "os": "windows", "is_normal": True},
+            {"device_type": "Mac (Normal)", "risk_score": 0.15, "count": 8700, "fraud_count": 1305, "os": "mac", "is_normal": True},
+            {"device_type": "Linux (Normal)", "risk_score": 0.35, "count": 3200, "fraud_count": 1120, "os": "linux", "is_normal": True},
+            {"device_type": "Android (Emulator)", "risk_score": 0.68, "count": 1800, "fraud_count": 1224, "os": "android", "is_emulator": True},
+        ][:limit]
     }
 
 
@@ -1541,7 +1832,7 @@ async def close_case(case_id: str, closure: Dict):
     return case
 
 
-# RAG Knowledge Base endpoints
+# RAG Knowledge Base endpoints - using new knowledge base from ai module
 @app.post("/api/v1/rag/search", response_model=RAGResponse, tags=["Knowledge"])
 async def rag_search(request: RAGQuery):
     """
@@ -1562,9 +1853,9 @@ async def rag_search(request: RAGQuery):
     )
 
     return RAGResponse(
-        results=results,
+        results=[r.to_dict() for r in results],
         query=request.query,
-        total_chunks_searched=len(app_state["rag"].chunks),
+        total_chunks_searched=app_state["rag"].vector_store.count(),
     )
 
 
@@ -1742,4 +2033,4 @@ async def global_exception_handler(request: Request, exc: Exception):
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8002)

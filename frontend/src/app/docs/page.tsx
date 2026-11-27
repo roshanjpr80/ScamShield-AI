@@ -2529,17 +2529,17 @@ function renderMarkdown(content: string) {
   // Simple markdown rendering for demo
   return content
     .split('\n')
-    .map(line => {
-      if (line.startsWith('### ')) return <h3 className="text-lg font-semibold text-gray-900 mt-6 mb-3">{line.slice(4)}</h3>
-      if (line.startsWith('## ')) return <h2 className="text-xl font-bold text-gray-900 mt-8 mb-4 pb-2 border-b border-gray-200">{line.slice(3)}</h2>
-      if (line.startsWith('# ')) return <h1 className="text-2xl font-bold text-gray-900 mt-8 mb-4">{line.slice(2)}</h1>
-      if (line.startsWith('|') && line.endsWith('|')) return <div className="overflow-x-auto my-4"><table className="table"><tbody><tr>{line.split('|').slice(1, -1).map((cell, i) => <td key={i} className="px-3 py-2 text-sm">{cell.trim()}</td>)}</tr></tbody></table></div>
-      if (line.startsWith('```')) return <div className="my-4" />
-      if (line.startsWith('`') && line.endsWith('`')) return <code className="bg-gray-100 px-1.5 py-0.5 rounded text-sm font-mono">{line.slice(1, -1)}</code>
-      if (line.startsWith('- ') || line.startsWith('* ')) return <li className="ml-4 mb-1">{line.slice(2)}</li>
-      if (line.match(/^\d+\. /)) return <li className="ml-4 mb-1">{line}</li>
-      if (line.trim() === '') return <br key="br" />
-      return <p className="text-gray-700 mb-3">{line}</p>
+    .map((line, index) => {
+      if (line.startsWith('### ')) return <h3 key={index} className="text-lg font-semibold text-gray-900 mt-6 mb-3">{line.slice(4)}</h3>
+      if (line.startsWith('## ')) return <h2 key={index} className="text-xl font-bold text-gray-900 mt-8 mb-4 pb-2 border-b border-gray-200">{line.slice(3)}</h2>
+      if (line.startsWith('# ')) return <h1 key={index} className="text-2xl font-bold text-gray-900 mt-8 mb-4">{line.slice(2)}</h1>
+      if (line.startsWith('|') && line.endsWith('|')) return <div key={index} className="overflow-x-auto my-4"><table className="table"><tbody><tr>{line.split('|').slice(1, -1).map((cell, i) => <td key={i} className="px-3 py-2 text-sm">{cell.trim()}</td>)}</tr></tbody></table></div>
+      if (line.startsWith('```')) return <div key={index} className="my-4" />
+      if (line.startsWith('`') && line.endsWith('`')) return <code key={index} className="bg-gray-100 px-1.5 py-0.5 rounded text-sm font-mono">{line.slice(1, -1)}</code>
+      if (line.startsWith('- ') || line.startsWith('* ')) return <li key={index} className="ml-4 mb-1">{line.slice(2)}</li>
+      if (line.match(/^\d+\. /)) return <li key={index} className="ml-4 mb-1">{line}</li>
+      if (line.trim() === '') return <br key={index} />
+      return <p key={index} className="text-gray-700 mb-3">{line}</p>
     })
 }
 

@@ -33,9 +33,7 @@ app = typer.Typer(
 console = Console()
 
 
-# ============================================================
 # Model Commands
-# ============================================================
 
 model_app = typer.Typer(name="model", help="Model management commands")
 app.add_typer(model_app)
@@ -407,9 +405,7 @@ def score_batch(
         console.print(f"[green]✓[/green] Results written to {output}")
 
 
-# ============================================================
 # Feature Store Commands
-# ============================================================
 
 feature_app = typer.Typer(name="features", help="Feature store commands")
 app.add_typer(feature_app)
@@ -462,10 +458,7 @@ def feature_stats(
         table.add_row(k, str(v))
     console.print(table)
 
-
-# ============================================================
 # Server Commands
-# ============================================================
 
 server_app = typer.Typer(name="server", help="API server commands")
 app.add_typer(server_app)
@@ -512,9 +505,7 @@ def server_health(
     console.print(table)
 
 
-# ============================================================
 # Development Commands
-# ============================================================
 
 dev_app = typer.Typer(name="dev", help="Development utilities")
 app.add_typer(dev_app)

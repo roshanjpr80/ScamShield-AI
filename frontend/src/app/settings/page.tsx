@@ -125,7 +125,7 @@ export default function SettingsPage() {
       setState(prev => ({
         ...prev,
         profile: profileRes,
-        preferences: prefsRes,
+        preferences: prefsRes as UserPreferences,
         loading: false,
       }))
     } catch (err) {
@@ -581,7 +581,7 @@ export default function SettingsPage() {
                         {state.preferences.apiKeys.length === 0 && (
                           <tr>
                             <td colSpan={6} className="text-center py-8 text-gray-500">
-                              No API keys created yet. Click "Create API Key" to get started.
+                              No API keys created yet. Click &ldquo;Create API Key&rdquo; to get started.
                             </td>
                           </tr>
                         )}

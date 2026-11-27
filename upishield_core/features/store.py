@@ -396,10 +396,8 @@ class FeatureStore:
 
         return features
 
-    # ============================================================
-    # Feature Updates (Async, Fire-and-Forget)
-    # ============================================================
-
+  # Feature Updates (Async, Fire-and-Forget)
+   
     async def update_transaction_features(
         self, transaction: UPITransaction, is_fraud: bool = False
     ) -> None:

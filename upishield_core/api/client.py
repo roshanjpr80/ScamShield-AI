@@ -129,10 +129,8 @@ class UPIShieldClient:
 
         raise last_exception
 
-    # ============================================================
-    # Scoring Endpoints
-    # ============================================================
-
+   # Scoring Endpoints
+ 
     async def score(self, transaction: UPITransaction) -> ScoreResponse:
         """
         Score a single transaction.
@@ -170,9 +168,7 @@ class UPIShieldClient:
         response = await self._request("GET", f"/api/v1/jobs/{job_id}")
         return ScoreResponse(**response.json())
 
-    # ============================================================
-    # Health & Monitoring
-    # ============================================================
+   # Health & Monitoring
 
     async def health(self) -> HealthResponse:
         """Check API health."""
@@ -189,10 +185,8 @@ class UPIShieldClient:
         response = await self._request("GET", "/metrics")
         return response.text
 
-    # ============================================================
-    # Model Management
-    # ============================================================
-
+  # Model Management
+ 
     async def get_model_info(self) -> ModelInfoResponse:
         """Get current model information."""
         response = await self._request("GET", "/api/v1/models/info")
@@ -212,10 +206,8 @@ class UPIShieldClient:
         )
         return response.json()
 
-    # ============================================================
-    # Utility Methods
-    # ============================================================
-
+   # Utility Methods
+   
     async def warm_up(self, num_requests: int = 10) -> float:
         """Warm up the API with dummy requests."""
         dummy_txn = UPITransaction(
@@ -292,9 +284,7 @@ class UPIShieldSyncClient:
         return self._run_async(self._async_client.warm_up(num_requests))
 
 
-# ============================================================
 # High-level convenience functions
-# ============================================================
 
 
 async def quick_score(

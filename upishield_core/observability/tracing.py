@@ -195,10 +195,7 @@ def get_tracer() -> trace.Tracer:
         _tracer = init_tracing()
     return _tracer
 
-
-# ============================================================
 # Span Helpers
-# ============================================================
 
 
 @contextmanager
@@ -278,9 +275,7 @@ def traced(name: str = None, kind: SpanKind = SpanKind.INTERNAL, attributes: Dic
     return decorator
 
 
-# ============================================================
 # Domain-Specific Span Helpers
-# ============================================================
 
 
 class TracingHelper:
@@ -406,10 +401,7 @@ class TracingHelper:
         ) as current_span:
             yield current_span
 
-
-# ============================================================
 # Correlation ID Propagation
-# ============================================================
 
 CORRELATION_ID_HEADER = "x-correlation-id"
 TRACE_ID_HEADER = "x-trace-id"
@@ -437,9 +429,7 @@ def set_correlation_id(correlation_id: str):
         span.set_attribute("correlation_id", correlation_id)
 
 
-# ============================================================
 # Custom Span Attributes for UPIShield
-# ============================================================
 
 
 class SpanAttributes:
@@ -494,9 +484,7 @@ def set_span_attributes(span: trace.Span, attributes: Dict[str, Any]):
             span.set_attribute(key, value)
 
 
-# ============================================================
 # Lifecycle
-# ============================================================
 
 
 async def shutdown_tracing():

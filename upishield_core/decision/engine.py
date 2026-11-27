@@ -6,6 +6,7 @@ Combines:
 - Deterministic Rules (velocity, blocklists, patterns)
 - Threat Intelligence (IP reputation, device reputation, etc.)
 - Explainability (SHAP values, rule traces)
+- Online Feature Store integration for real-time feature serving
 """
 
 import asyncio
@@ -13,15 +14,23 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
 from upishield_core.api.schemas import FraudDecision, RiskLevel, UPITransaction
 from upishield_core.features.compute import FeatureComputer
+from upishield_core.features.online_store import OnlineFeatureStore, OnlineStoreConfig, StoreBackend
 from upishield_core.features.schemas import UPIFeatures
 from upishield_core.models.ensemble import ONNXEnsemble
 from upishield_core.models.registry import ModelRegistry
+from upishield_core.observability.tracing import (
+    TracingHelper,
+    SpanAttributes,
+    inject_correlation_id,
+    extract_correlation_id,
+    set_correlation_id,
+)
 
 
 class DecisionSource(str, Enum):
@@ -489,12 +498,14 @@ class DecisionEngine:
         registry: ModelRegistry,
         rule_engine: RuleEngine = None,
         threat_intel: ThreatIntelligenceClient = None,
+        feature_store: OnlineFeatureStore = None,
         config: Dict[str, Any] = None,
     ):
         self.ensemble = ensemble
         self.registry = registry
         self.rule_engine = rule_engine or RuleEngine()
         self.threat_intel = threat_intel or ThreatIntelligenceClient()
+        self.feature_store = feature_store
         self.config = config or self._default_config()
 
         # Decision thresholds
@@ -530,64 +541,102 @@ class DecisionEngine:
 
         Target latency: <50ms p99
         """
-        start_time = time.perf_counter()
+        # Extract correlation ID from transaction if available
+        correlation_id = getattr(transaction, 'correlation_id', None)
+        if correlation_id:
+            set_correlation_id(correlation_id)
 
-        # 1. Get features (from FeatureStore - passed in or fetched)
-        # In real usage, features would be fetched from FeatureStore
-        # Here we compute them inline for demo
-        features = self._build_features(transaction)
+        # Trace the entire scoring operation
+        with TracingHelper.score_transaction(
+            txn_id=transaction.txn_id,
+            payer_vpa=transaction.payer_vpa,
+            payee_vpa=transaction.payee_vpa,
+            amount=float(transaction.amount),
+        ) as score_span:
+            start_time = time.perf_counter()
 
-        # 2. Compute derived features
-        FeatureComputer.compute_all(features)
+            # 1. Get features (from FeatureStore - passed in or fetched)
+            # In real usage, features would be fetched from FeatureStore
+            # Here we compute them inline for demo
+            with TracingHelper.feature_store_get(keys_count=3, cache_hit=self.feature_store is not None) as fs_span:
+                features = self._build_features(transaction)
+                fs_span.set_attribute(SpanAttributes.FEATURE_COUNT, len(features.__dict__) if features else 0)
 
-        # 3. ML Ensemble inference
-        ml_start = time.perf_counter()
-        ml_score, ml_confidence, model_scores = self.ensemble.predict_with_uncertainty(
-            transaction, features
-        )
-        ml_latency = (time.perf_counter() - ml_start) * 1000
+            # 2. Compute derived features
+            FeatureComputer.compute_all(features)
 
-        # 4. Evaluate deterministic rules (parallel with threat intel)
-        rule_results = []
-        if self.config.get("enable_rules", True):
-            rule_results = self.rule_engine.evaluate(transaction, features)
+            # 3. ML Ensemble inference
+            ml_start = time.perf_counter()
+            with TracingHelper.ml_inference(
+                model_name="ensemble",
+                model_type="onnx",
+                input_shape=(1, len(features.__dict__) if features else 0),
+            ) as ml_span:
+                ml_score, ml_confidence, model_scores = self.ensemble.predict_with_uncertainty(
+                    transaction, features
+                )
+                ml_span.set_attribute(SpanAttributes.MODEL_SCORE, ml_score)
+                ml_span.set_attribute(SpanAttributes.MODEL_CONFIDENCE, ml_confidence)
+                ml_span.set_attribute(SpanAttributes.ENSEMBLE_SIZE, len(model_scores))
+                ml_span.set_attribute(SpanAttributes.ML_LATENCY_MS, (time.perf_counter() - ml_start) * 1000)
+            ml_latency = (time.perf_counter() - ml_start) * 1000
 
-        # 5. Query threat intelligence
-        threat_intel_results = []
-        if self.config.get("enable_threat_intel", True):
-            threat_intel_results = await self.threat_intel.lookup_all(transaction)
+            # 4. Evaluate deterministic rules (parallel with threat intel)
+            rule_results = []
+            if self.config.get("enable_rules", True):
+                with TracingHelper.rule_evaluation(rules_count=len(self.rule_engine.rules)) as rule_span:
+                    rule_results = self.rule_engine.evaluate(transaction, features)
+                    rule_span.set_attribute(SpanAttributes.RULES_TRIGGERED, len(rule_results))
+                    if rule_results:
+                        rule_span.set_attribute(SpanAttributes.RULE_SCORE, self.rule_engine.compute_rule_score(rule_results))
 
-        # 6. Combine signals
-        rule_score = self.rule_engine.compute_rule_score(rule_results)
-        threat_score = self._compute_threat_score(threat_intel_results)
+            # 5. Query threat intelligence
+            threat_intel_results = []
+            if self.config.get("enable_threat_intel", True):
+                with TracingHelper.threat_intel_lookup(source="multi", target=transaction.payer_vpa) as ti_span:
+                    threat_intel_results = await self.threat_intel.lookup_all(transaction)
+                    ti_span.set_attribute(SpanAttributes.THREAT_SCORE, self._compute_threat_score(threat_intel_results))
+                    ti_span.set_attribute(SpanAttributes.THREAT_LABELS, ",".join(
+                        l for r in threat_intel_results for l in r.labels
+                    ))
 
-        # Weighted ensemble
-        final_score = (
-            self.weights["ml_ensemble"] * ml_score
-            + self.weights["rules"] * rule_score
-            + self.weights["threat_intel"] * threat_score
-        )
+            # 6. Combine signals
+            with TracingHelper.decision_combination(components=["ml_ensemble", "rules", "threat_intel"]) as dc_span:
+                rule_score = self.rule_engine.compute_rule_score(rule_results)
+                threat_score = self._compute_threat_score(threat_intel_results)
 
-        # 7. Apply decision thresholds
-        decision, risk_level = self._make_decision(final_score, rule_results)
+                # Weighted ensemble
+                final_score = (
+                    self.weights["ml_ensemble"] * ml_score
+                    + self.weights["rules"] * rule_score
+                    + self.weights["threat_intel"] * threat_score
+                )
 
-        # 8. Generate explanation
-        explanation = self._generate_explanation(
-            transaction,
-            features,
-            ml_score,
-            ml_confidence,
-            model_scores,
-            rule_results,
-            threat_intel_results,
-            rule_score,
-            threat_score,
-            final_score,
-            decision,
-            risk_level,
-        )
+                dc_span.set_attribute(SpanAttributes.RISK_SCORE, final_score)
 
-        total_latency = (time.perf_counter() - start_time) * 1000
+                # 7. Apply decision thresholds
+                decision, risk_level = self._make_decision(final_score, rule_results)
+                dc_span.set_attribute(SpanAttributes.DECISION, decision.value)
+                dc_span.set_attribute(SpanAttributes.RISK_LEVEL, risk_level.value)
+
+            # 8. Generate explanation
+            explanation = self._generate_explanation(
+                transaction,
+                features,
+                ml_score,
+                ml_confidence,
+                model_scores,
+                rule_results,
+                threat_intel_results,
+                rule_score,
+                threat_score,
+                final_score,
+                decision,
+                risk_level,
+            )
+
+            total_latency = (time.perf_counter() - start_time) * 1000
+            score_span.set_attribute(SpanAttributes.LATENCY_MS, total_latency)
 
         return DecisionContext(
             transaction=transaction,
@@ -605,7 +654,7 @@ class DecisionEngine:
         )
 
     def _build_features(self, transaction: UPITransaction) -> UPIFeatures:
-        """Build feature object from transaction (mock for demo)."""
+        """Build feature object from transaction, fetching from online store if available."""
         from upishield_core.features.schemas import (
             DeviceNetworkFeatures,
             GraphFeatures,
@@ -614,8 +663,11 @@ class DecisionEngine:
             VelocityFeatures,
         )
 
-        # In production, this would fetch from FeatureStore
-        # Here we create minimal features with defaults
+        # If feature store is available, fetch features
+        if self.feature_store:
+            return self._fetch_features_from_store(transaction)
+
+        # Fallback: create minimal features with defaults (for backward compatibility)
         return UPIFeatures(
             txn_id=transaction.txn_id,
             payer_vpa=transaction.payer_vpa,
@@ -634,6 +686,85 @@ class DecisionEngine:
             velocity=VelocityFeatures(),
             graph=GraphFeatures(),
         )
+
+    def _fetch_features_from_store(self, transaction: UPITransaction) -> UPIFeatures:
+        """Fetch features from online feature store for real-time scoring."""
+        from upishield_core.features.schemas import (
+            DeviceNetworkFeatures,
+            GraphFeatures,
+            MerchantFeatures,
+            UserBehavioralFeatures,
+            VelocityFeatures,
+        )
+
+        # Prepare entity rows for multi-entity fetch
+        entity_rows = [
+            {"user_id": transaction.payer_vpa},
+            {"merchant_id": transaction.payee_vpa},
+            {"device_id": transaction.device_id or "unknown"},
+        ]
+
+        # Add transaction_id if available
+        if transaction.txn_id:
+            entity_rows.append({"transaction_id": transaction.txn_id})
+
+        # Fetch features for all entities
+        feature_results = self.feature_store.read_multi_entity(entity_rows)
+
+        # Build UPIFeatures from results
+        features = UPIFeatures(
+            txn_id=transaction.txn_id,
+            payer_vpa=transaction.payer_vpa,
+            payee_vpa=transaction.payee_vpa,
+            amount=float(transaction.amount),
+            currency=transaction.currency,
+            txn_type=(
+                transaction.txn_type.value
+                if hasattr(transaction.txn_type, "value")
+                else str(transaction.txn_type)
+            ),
+            timestamp=transaction.timestamp or datetime.utcnow(),
+        )
+
+        # Parse feature results into appropriate feature objects
+        for result in feature_results:
+            if "error" in result:
+                continue
+
+            # User features
+            if "user_id" in result:
+                user_feats = {k: v for k, v in result.items() if k != "user_id"}
+                features.user_behavioral = UserBehavioralFeatures(user_id=result["user_id"], **user_feats)
+
+            # Merchant features
+            elif "merchant_id" in result:
+                merchant_feats = {k: v for k, v in result.items() if k != "merchant_id"}
+                features.merchant = MerchantFeatures(merchant_vpa=result["merchant_id"], **merchant_feats)
+
+            # Device features
+            elif "device_id" in result:
+                device_feats = {k: v for k, v in result.items() if k != "device_id"}
+                features.device_network = DeviceNetworkFeatures(device_id=result["device_id"], **device_feats)
+
+            # Transaction/velocity features
+            elif "transaction_id" in result:
+                txn_feats = {k: v for k, v in result.items() if k != "transaction_id"}
+                # Could also populate velocity/graph features here
+                features.velocity = VelocityFeatures(**txn_feats)
+
+        # Fill in defaults for any missing features
+        if features.user_behavioral is None:
+            features.user_behavioral = UserBehavioralFeatures(user_id=transaction.payer_vpa)
+        if features.device_network is None:
+            features.device_network = DeviceNetworkFeatures(device_id=transaction.device_id or "unknown")
+        if features.merchant is None:
+            features.merchant = MerchantFeatures(merchant_vpa=transaction.payee_vpa)
+        if features.velocity is None:
+            features.velocity = VelocityFeatures()
+        if features.graph is None:
+            features.graph = GraphFeatures()
+
+        return features
 
     def _compute_threat_score(self, threat_results: List[ThreatIntelResult]) -> float:
         """Compute composite threat intelligence score."""
@@ -838,8 +969,23 @@ class DecisionEngine:
 class DecisionEngineSync:
     """Synchronous wrapper for DecisionEngine."""
 
-    def __init__(self, *args, **kwargs):
-        self._async_engine = DecisionEngine(*args, **kwargs)
+    def __init__(
+        self,
+        ensemble: ONNXEnsemble,
+        registry: ModelRegistry,
+        rule_engine: RuleEngine = None,
+        threat_intel: ThreatIntelligenceClient = None,
+        feature_store: OnlineFeatureStore = None,
+        config: Dict[str, Any] = None,
+    ):
+        self._async_engine = DecisionEngine(
+            ensemble=ensemble,
+            registry=registry,
+            rule_engine=rule_engine,
+            threat_intel=threat_intel,
+            feature_store=feature_store,
+            config=config,
+        )
 
     def score(self, transaction: UPITransaction) -> DecisionContext:
         """Synchronous score - runs async in event loop."""

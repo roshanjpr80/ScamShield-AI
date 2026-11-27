@@ -464,7 +464,7 @@ export default function ScamLibraryPage() {
                   <div className="space-y-2">
                     {(selectedPattern.variants || selectedPattern.examples).map((example, idx) => (
                       <div key={idx} className="p-3 bg-gray-50 rounded-lg border-l-4 border-primary-500">
-                        <p className="text-sm text-gray-700">"{example}"</p>
+                        <p className="text-sm text-gray-700">&ldquo;{example}&rdquo;</p>
                       </div>
                     ))}
                   </div>
