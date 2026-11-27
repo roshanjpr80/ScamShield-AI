@@ -128,25 +128,19 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("tracing_unavailable", error=str(e))
 
-    # Initialize model registry
+    # Initialize model registry (lightweight - no model loading)
     app_state["registry"] = ModelRegistry("./models")
 
-    # Load ensemble models
-    try:
-        app_state["ensemble"] = ONNXEnsemble("./models")
-        app_state["ensemble"].load()
-        MODELS_LOADED.set(len(app_state["ensemble"].sessions))
-        logger.info("models_loaded", count=len(app_state["ensemble"].sessions))
-    except FileNotFoundError as e:
-        logger.warning("models_not_found", error=str(e))
-        MODELS_LOADED.set(0)
+    # Initialize ensemble (LAZY - loads on first request)
+    app_state["ensemble"] = ONNXEnsemble("./models")
+    # Don't call .load() here - will lazy-load on first request
+    MODELS_LOADED.set(0)
 
-    # Initialize decision engine
-    if app_state["ensemble"]:
-        app_state["decision_engine"] = DecisionEngine(
-            ensemble=app_state["ensemble"],
-            registry=app_state["registry"],
-        )
+    # Initialize decision engine (uses lazy ensemble)
+    app_state["decision_engine"] = DecisionEngine(
+        ensemble=app_state["ensemble"],
+        registry=app_state["registry"],
+    )
 
     # Initialize feature store (optional)
     try:
@@ -157,22 +151,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("feature_store_unavailable", error=str(e))
 
-    # Initialize RAG knowledge base (optional)
-    try:
-        from upishield_core.ai import get_knowledge_base
-        app_state["rag"] = get_knowledge_base()
-        success = app_state["rag"].initialize(seed_data=True)
-        if success:
-            logger.info("rag_initialized", chunks=app_state["rag"].vector_store.count())
-    except Exception as e:
-        logger.warning("rag_unavailable", error=str(e))
+    # Initialize RAG knowledge base (optional) - LAZY
+    app_state["rag"] = None  # Will initialize on first use
 
     # Initialize WebSocket manager
     await init_websocket()
 
     # Initialize Kafka producer and stream processor (optional)
     # Use mock Kafka for development without broker
-    import os
     use_mock_kafka = os.getenv("USE_MOCK_KAFKA", "true").lower() == "true"
 
     try:
@@ -197,7 +183,6 @@ async def lifespan(app: FastAPI):
     await close_workflow()
     await close_websocket()
     await close_stream_processor()
-    import os
     use_mock_kafka = os.getenv("USE_MOCK_KAFKA", "true").lower() == "true"
     if use_mock_kafka:
         await close_mock_kafka_producer()

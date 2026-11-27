@@ -89,10 +89,9 @@ class EnsembleInference:
         # Load categorical encodings used during training
         self._load_categorical_mappings()
 
-        # Always initialize sklearn fallback as backup
-        # This ensures the ensemble always works, with or without ONNX model files
-        self._init_sklearn_fallback()
-        # Try to load scaler and feature columns if available
+        # Don't initialize sklearn fallback at startup (memory heavy)
+        # Will lazy-initialize on first request if ONNX models not available
+        self._sklearn_initialized = False
         self._load_scaler_and_features()
 
     def _load_categorical_mappings(self) -> None:
@@ -354,6 +353,38 @@ class EnsembleInference:
         predictions = asyncio.run(self.predict_async(transaction, features))
         return self.ensemble_score(predictions)
 
+    def _ensure_sklearn_initialized(self) -> None:
+        """Lazy-initialize sklearn fallback models when first needed."""
+        if getattr(self, '_sklearn_initialized', False):
+            return
+        # Use synthetic training data patterns matching the feature schema
+        np.random.seed(42)
+        n_samples = 1000
+        X = np.random.randn(n_samples, len(self.feature_columns)).astype(np.float32)
+        y = np.random.binomial(1, 0.3, n_samples)
+
+        self.sklearn_models = {
+            "xgb": GradientBoostingClassifier(
+                n_estimators=50, max_depth=3, learning_rate=0.1, random_state=42
+            ),
+            "lgbm": GradientBoostingClassifier(
+                n_estimators=50, max_depth=3, learning_rate=0.1, random_state=42
+            ),
+            "transformer": GradientBoostingClassifier(
+                n_estimators=50, max_depth=3, learning_rate=0.1, random_state=42
+            ),
+            "gnn": GradientBoostingClassifier(
+                n_estimators=50, max_depth=3, learning_rate=0.1, random_state=42
+            ),
+        }
+
+        for model in self.sklearn_models.values():
+            model.fit(X, y)
+
+        self.scaler = MinMaxScaler()
+        self.scaler.fit(X)
+        self._sklearn_initialized = True
+
     def predict_with_uncertainty(
         self,
         feature_array: np.ndarray,
@@ -392,9 +423,8 @@ class EnsembleInference:
             if predictions:
                 return self.ensemble_score_with_metadata(predictions)
 
-        # Fall back to sklearn models
-        if hasattr(self, 'sklearn_models') and self.sklearn_models and hasattr(self, 'scaler') and self.scaler is not None:
-            feature_array = self.scaler.transform(feature_array)
+        # Fall back to sklearn models (lazy init)
+        self._ensure_sklearn_initialized()
 
         # Run sklearn models
         predictions = []
