@@ -63,6 +63,9 @@ evidently>=0.4.0
 whylogs>=1.2.0
 mlflow-skinny
 
+# Feature Store
+feast>=0.38.0
+
 # API/Backend
 fastapi-utils>=0.8.0
 celery[redis]>=5.3.0
