@@ -15,14 +15,30 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
-import chromadb
 import numpy as np
-from chromadb.config import Settings
-from sentence_transformers import SentenceTransformer
 
 logger = logging.getLogger(__name__)
+
+# Lazy imports - loaded on first use
+_chromadb = None
+_sentence_transformers = None
+
+def _get_chromadb():
+    global _chromadb
+    if _chromadb is None:
+        import chromadb
+        from chromadb.config import Settings
+        _chromadb = (chromadb, Settings)
+    return _chromadb
+
+def _get_sentence_transformers():
+    global _sentence_transformers
+    if _sentence_transformers is None:
+        from sentence_transformers import SentenceTransformer
+        _sentence_transformers = SentenceTransformer
+    return _sentence_transformers
 
 
 # ============================================================
@@ -90,7 +106,7 @@ class EmbeddingProvider:
     """Provides text embeddings using sentence-transformers."""
 
     _instance: Optional["EmbeddingProvider"] = None
-    _model: Optional[SentenceTransformer] = None
+    _model: Any = None  # SentenceTransformer
 
     def __new__(cls, model_name: str = "all-MiniLM-L6-v2") -> "EmbeddingProvider":
         if cls._instance is None:
@@ -106,6 +122,7 @@ class EmbeddingProvider:
     def _load_model(self):
         """Load the sentence transformer model."""
         try:
+            SentenceTransformer = _get_sentence_transformers()
             self._model = SentenceTransformer(self._model_name)
             logger.info(f"Loaded embedding model: {self._model_name}")
         except Exception as e:
@@ -157,13 +174,14 @@ class VectorStore:
     ):
         self.collection_name = collection_name
         self.persist_directory = persist_directory or "./data/chroma"
-        self._client: Optional[chromadb.Client] = None
+        self._client: Any = None  # chromadb.Client
         self._collection = None
         self._embedding_provider = EmbeddingProvider.get_instance()
 
-    def _get_client(self) -> chromadb.Client:
+    def _get_client(self):
         """Get or create ChromaDB client."""
         if self._client is None:
+            chromadb, Settings = _get_chromadb()
             os.makedirs(self.persist_directory, exist_ok=True)
             self._client = chromadb.PersistentClient(
                 path=self.persist_directory,

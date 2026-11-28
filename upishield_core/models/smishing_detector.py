@@ -20,18 +20,42 @@ from typing import Dict, List, Optional, Any, Tuple
 from enum import Enum
 
 import numpy as np
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from torch.utils.data import Dataset, DataLoader
-from transformers import (
-    AutoTokenizer,
-    AutoModel,
-    AutoConfig,
-    get_linear_schedule_with_warmup,
-)
 from sklearn.metrics import classification_report, confusion_matrix, f1_score
 from tqdm import tqdm
+
+# Lazy imports for heavy ML libraries
+_torch = None
+_torch_nn = None
+_torch_F = None
+_torch_utils_data = None
+_transformers = None
+
+def _get_torch():
+    """Lazy import torch and related modules."""
+    global _torch, _torch_nn, _torch_F, _torch_utils_data
+    if _torch is None:
+        import torch
+        import torch.nn as nn
+        import torch.nn.functional as F
+        from torch.utils.data import Dataset, DataLoader
+        _torch = torch
+        _torch_nn = nn
+        _torch_F = F
+        _torch_utils_data = (Dataset, DataLoader)
+    return _torch, _torch_nn, _torch_F, _torch_utils_data
+
+def _get_transformers():
+    """Lazy import transformers modules."""
+    global _transformers
+    if _transformers is None:
+        from transformers import (
+            AutoTokenizer,
+            AutoModel,
+            AutoConfig,
+            get_linear_schedule_with_warmup,
+        )
+        _transformers = (AutoTokenizer, AutoModel, AutoConfig, get_linear_schedule_with_warmup)
+    return _transformers
 
 
 class SmishingCategory(str, Enum):
@@ -66,8 +90,8 @@ class SmishingPrediction:
     metadata: Dict[str, Any]
 
 
-class SmishingDataset(Dataset):
-    """PyTorch dataset for smishing detection."""
+class SmishingDataset:
+    """PyTorch dataset for smishing detection (lazy torch imports)."""
 
     def __init__(
         self,
@@ -84,7 +108,8 @@ class SmishingDataset(Dataset):
     def __len__(self) -> int:
         return len(self.texts)
 
-    def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
+    def __getitem__(self, idx: int) -> Dict[str, Any]:
+        torch, _, _, (Dataset, DataLoader) = _get_torch()
         text = str(self.texts[idx])
         label = self.labels[idx]
 
@@ -103,8 +128,8 @@ class SmishingDataset(Dataset):
         }
 
 
-class SmishingTransformer(nn.Module):
-    """Transformer-based smishing classifier with multi-task heads."""
+class SmishingTransformer:
+    """Transformer-based smishing classifier with multi-task heads (lazy imports)."""
 
     def __init__(
         self,
@@ -114,6 +139,9 @@ class SmishingTransformer(nn.Module):
         dropout: float = 0.3,
         freeze_backbone: bool = False,
     ):
+        torch, nn, F, _ = _get_torch()
+        AutoTokenizer, AutoModel, AutoConfig, _ = _get_transformers()
+
         super().__init__()
         self.model_name = model_name
         self.num_categories = num_categories
@@ -158,9 +186,9 @@ class SmishingTransformer(nn.Module):
 
     def forward(
         self,
-        input_ids: torch.Tensor,
-        attention_mask: torch.Tensor,
-    ) -> Dict[str, torch.Tensor]:
+        input_ids,
+        attention_mask,
+    ) -> Dict[str, Any]:
         """Forward pass returning category logits, fraud logits, and confidence."""
         outputs = self.backbone(input_ids=input_ids, attention_mask=attention_mask)
 
@@ -198,6 +226,9 @@ class SmishingDetector:
         device: str = None,
         model_dir: str = "./models/smishing",
     ):
+        AutoTokenizer, _, _, _ = _get_transformers()
+        torch, _, _, _ = _get_torch()
+
         self.model_name = model_name
         self.max_length = max_length
         self.model_dir = Path(model_dir)
@@ -240,6 +271,7 @@ class SmishingDetector:
 
     def load_model(self, model_path: str = None) -> SmishingTransformer:
         """Load a trained model."""
+        torch, _, _, _ = _get_torch()
         path = Path(model_path) if model_path else self.model_dir / "best_model.pt"
 
         if not path.exists():
@@ -270,7 +302,7 @@ class SmishingDetector:
         weight_decay: float = 0.01,
         warmup_steps: int = 500,
         max_grad_norm: float = 1.0,
-        class_weights: torch.Tensor = None,
+        class_weights = None,
         early_stopping_patience: int = 3,
         save_best: bool = True,
     ) -> Dict[str, List[float]]:
@@ -295,6 +327,9 @@ class SmishingDetector:
         Returns:
             Training history dict
         """
+        torch, nn, _, (Dataset, DataLoader) = _get_torch()
+        _, _, _, get_linear_schedule_with_warmup = _get_transformers()
+
         if self.model is None:
             self.build_model()
 
@@ -436,12 +471,13 @@ class SmishingDetector:
 
     def _validate(
         self,
-        val_loader: DataLoader,
-        category_criterion: nn.CrossEntropyLoss,
-        fraud_criterion: nn.BCEWithLogitsLoss,
-        confidence_criterion: nn.MSELoss,
+        val_loader,
+        category_criterion,
+        fraud_criterion,
+        confidence_criterion,
     ) -> Tuple[float, float, float]:
         """Validate the model."""
+        torch, _, _, _ = _get_torch()
         self.model.eval()
         val_loss = 0.0
         val_correct = 0
@@ -495,6 +531,7 @@ class SmishingDetector:
         Returns:
             List of SmishingPrediction objects
         """
+        torch, _, F, (Dataset, DataLoader) = _get_torch()
         if self.model is None or not self.is_trained:
             raise RuntimeError("Model not trained or loaded. Call train() or load_model() first.")
 
@@ -570,6 +607,7 @@ class SmishingDetector:
 
     def save_model(self, path: str):
         """Save model checkpoint."""
+        torch, _, _, _ = _get_torch()
         if self.model is None:
             raise RuntimeError("No model to save")
 
@@ -584,6 +622,7 @@ class SmishingDetector:
 
     def export_onnx(self, output_path: str, opset_version: int = 17):
         """Export model to ONNX format for production inference."""
+        torch, _, _, _ = _get_torch()
         if self.model is None or not self.is_trained:
             raise RuntimeError("Model not trained or loaded")
 
@@ -620,8 +659,9 @@ class SmishingDetector:
         return detector
 
 
-def compute_class_weights(labels: List[int], num_classes: int = NUM_CATEGORIES) -> torch.Tensor:
+def compute_class_weights(labels: List[int], num_classes: int = NUM_CATEGORIES):
     """Compute class weights for imbalanced dataset."""
+    torch, _, _, _ = _get_torch()
     from collections import Counter
     counts = Counter(labels)
     total = len(labels)

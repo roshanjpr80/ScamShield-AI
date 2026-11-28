@@ -24,13 +24,24 @@ from sklearn.metrics import (
     precision_recall_curve, average_precision_score
 )
 from sklearn.base import BaseEstimator
-import mlflow
-import mlflow.sklearn
 
 from .mlflow_config import MLflowManager, get_mlflow_manager
 from .model_registry import ModelRegistry, ModelType, ModelStage, get_model_registry
 
 logger = logging.getLogger(__name__)
+
+# Lazy imports
+_mlflow = None
+_mlflow_sklearn = None
+
+def _get_mlflow():
+    global _mlflow, _mlflow_sklearn
+    if _mlflow is None:
+        import mlflow
+        import mlflow.sklearn
+        _mlflow = mlflow
+        _mlflow_sklearn = mlflow.sklearn
+    return _mlflow, _mlflow_sklearn
 
 
 class ModelAlgorithm(Enum):

@@ -11,17 +11,34 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 from dataclasses import dataclass, field
 from datetime import datetime
-import mlflow
-from mlflow.tracking import MlflowClient
-from mlflow.entities import Experiment, Run
 
 logger = logging.getLogger(__name__)
+
+# Lazy imports
+_mlflow = None
+_mlflow_client = None
+_mlflow_entities = None
+
+def _get_mlflow():
+    global _mlflow, _mlflow_client, _mlflow_entities, MlflowClient, Experiment, Run
+    if _mlflow is None:
+        import mlflow
+        from mlflow.tracking import MlflowClient as _MlflowClient
+        from mlflow.entities import Experiment as _Experiment, Run as _Run
+        _mlflow = mlflow
+        _mlflow_client = _MlflowClient
+        _mlflow_entities = (_Experiment, _Run)
+        # Make available for type hints
+        MlflowClient = _MlflowClient
+        Experiment = _Experiment
+        Run = _Run
+    return _mlflow, _mlflow_client, _mlflow_entities
 
 
 @dataclass
 class MLflowConfig:
     """MLflow configuration settings."""
-    tracking_uri: str = "file:./mlruns"
+    tracking_uri: str = "sqlite:///mlflow.db"
     registry_uri: Optional[str] = None
     experiment_name: str = "scamshield-fraud-detection"
     artifact_location: Optional[str] = None
@@ -49,9 +66,9 @@ class MLflowManager:
 
     def _setup(self):
         """Initialize MLflow tracking."""
-        mlflow.set_tracking_uri(self.config.tracking_uri)
+        _get_mlflow()[0].set_tracking_uri(self.config.tracking_uri)
         if self.config.registry_uri:
-            mlflow.set_registry_uri(self.config.registry_uri)
+            _get_mlflow()[0].set_registry_uri(self.config.registry_uri)
 
         self._client = MlflowClient(tracking_uri=self.config.tracking_uri)
 
@@ -102,10 +119,10 @@ class MLflowManager:
         )
 
         self._current_run = run
-        mlflow.start_run(run_id=run.info.run_id, nested=nested)
+        _get_mlflow()[0].start_run(run_id=run.info.run_id, nested=nested)
 
         if run_name:
-            mlflow.set_tag("mlflow.runName", run_name)
+            _get_mlflow()[0].set_tag("mlflow.runName", run_name)
 
         logger.info(f"Started MLflow run: {run.info.run_id}")
         return run
@@ -114,7 +131,7 @@ class MLflowManager:
         """End the current MLflow run."""
         if self._current_run:
             self._client.set_terminated(self._current_run.info.run_id, status)
-            mlflow.end_run()
+            _get_mlflow()[0].end_run()
             logger.info(f"Ended MLflow run: {self._current_run.info.run_id} with status: {status}")
             self._current_run = None
 
@@ -125,7 +142,7 @@ class MLflowManager:
             return
 
         for key, value in params.items():
-            mlflow.log_param(key, value)
+            _get_mlflow()[0].log_param(key, value)
         logger.debug(f"Logged {len(params)} parameters")
 
     def log_metrics(
@@ -139,7 +156,7 @@ class MLflowManager:
             return
 
         for key, value in metrics.items():
-            mlflow.log_metric(key, value, step=step)
+            _get_mlflow()[0].log_metric(key, value, step=step)
         logger.debug(f"Logged {len(metrics)} metrics")
 
     def log_artifact(self, local_path: str, artifact_path: Optional[str] = None):
@@ -148,7 +165,7 @@ class MLflowManager:
             logger.warning("No active run to log artifact")
             return
 
-        mlflow.log_artifact(local_path, artifact_path)
+        _get_mlflow()[0].log_artifact(local_path, artifact_path)
         logger.debug(f"Logged artifact: {local_path}")
 
     def log_artifacts(self, local_dir: str, artifact_path: Optional[str] = None):
@@ -157,7 +174,7 @@ class MLflowManager:
             logger.warning("No active run to log artifacts")
             return
 
-        mlflow.log_artifacts(local_dir, artifact_path)
+        _get_mlflow()[0].log_artifacts(local_dir, artifact_path)
         logger.debug(f"Logged artifacts from: {local_dir}")
 
     def log_model(
@@ -178,21 +195,21 @@ class MLflowManager:
             kwargs.setdefault('skops_trusted_types', ['sklearn.tree._tree.Tree'])
 
         if flavor == "sklearn":
-            mlflow.sklearn.log_model(model, artifact_path, registered_model_name=registered_model_name, **kwargs)
+            _get_mlflow()[0].sklearn.log_model(model, artifact_path, registered_model_name=registered_model_name, **kwargs)
         elif flavor == "pytorch":
-            mlflow.pytorch.log_model(model, artifact_path, registered_model_name=registered_model_name, **kwargs)
+            _get_mlflow()[0].pytorch.log_model(model, artifact_path, registered_model_name=registered_model_name, **kwargs)
         elif flavor == "tensorflow":
-            mlflow.tensorflow.log_model(model, artifact_path, registered_model_name=registered_model_name, **kwargs)
+            _get_mlflow()[0].tensorflow.log_model(model, artifact_path, registered_model_name=registered_model_name, **kwargs)
         elif flavor == "onnx":
-            mlflow.onnx.log_model(model, artifact_path, registered_model_name=registered_model_name, **kwargs)
+            _get_mlflow()[0].onnx.log_model(model, artifact_path, registered_model_name=registered_model_name, **kwargs)
         else:
-            mlflow.pyfunc.log_model(artifact_path, python_model=model, **kwargs)
+            _get_mlflow()[0].pyfunc.log_model(artifact_path, python_model=model, **kwargs)
 
         logger.info(f"Logged model to {artifact_path}")
 
     def load_model(self, model_uri: str) -> Any:
         """Load model from MLflow."""
-        return mlflow.pyfunc.load_model(model_uri)
+        return _get_mlflow()[0].pyfunc.load_model(model_uri)
 
     def search_runs(
         self,
@@ -227,7 +244,7 @@ class MLflowManager:
         tags: Optional[Dict[str, str]] = None,
     ):
         """Register model in MLflow Model Registry."""
-        mv = mlflow.register_model(model_uri, name, tags=tags)
+        mv = _get_mlflow()[0].register_model(model_uri, name, tags=tags)
         logger.info(f"Registered model: {name} version {mv.version}")
         return mv
 
@@ -262,7 +279,7 @@ class MLflowManager:
             logger.warning("No active run to log dataset")
             return
 
-        mlflow.log_artifact(dataset_path, f"{artifact_path}/{name}")
+        _get_mlflow()[0].log_artifact(dataset_path, f"{artifact_path}/{name}")
         logger.info(f"Logged dataset: {name}")
 
     def set_tags(self, tags: Dict[str, str]):
@@ -272,7 +289,7 @@ class MLflowManager:
             return
 
         for key, value in tags.items():
-            mlflow.set_tag(key, value)
+            _get_mlflow()[0].set_tag(key, value)
 
     def log_figure(self, figure, artifact_file: str):
         """Log matplotlib figure."""
@@ -280,7 +297,7 @@ class MLflowManager:
             logger.warning("No active run to log figure")
             return
 
-        mlflow.log_figure(figure, artifact_file)
+        _get_mlflow()[0].log_figure(figure, artifact_file)
 
 
 # Default MLflow manager instance

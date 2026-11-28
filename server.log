@@ -1,0 +1,26 @@
+WARNING:root:Feast not available - feature store will use mock implementation
+INFO:     Started server process [8760]
+INFO:     Waiting for application startup.
+2026-11-28 05:55:53 [info     ] starting_up                    version=0.1.0
+2026-11-28 05:55:53 [info     ] tracing_initialized            jaeger=False otlp=False zipkin=False
+WARNING:redis.asyncio.connection:Server/proxy at localhost:6379 does not support HELLO (RESP3). Falling back to RESP2. To silence this warning, set protocol=2 explicitly or upgrade your server/proxy. Module commands (JSON, Search, TimeSeries, Bloom, vector sets) do not adapt their response parsers after automatic fallback; set protocol=2 explicitly before using them.
+2026-11-28 05:55:53 [info     ] feature_store_connected
+2026-11-28 05:55:53 [info     ] websocket_manager_started
+2026-11-28 05:55:53 [info     ] websocket_initialized
+2026-11-28 05:55:53 [info     ] mock_kafka_producer_started    config=mock://localhost:9092
+2026-11-28 05:55:53 [info     ] mock_kafka_producer_initialized
+2026-11-28 05:55:53 [info     ] mock_kafka_producer_started    config=localhost:9092
+2026-11-28 05:55:53 [info     ] mock_kafka_consumer_started    group=scamshield-processor topics=['transactions', 'scoring-requests']
+2026-11-28 05:55:53 [info     ] stream_processor_started       consumer_group=scamshield-processor output_topic=fraud-events topics=['transactions', 'scoring-requests'] use_mock=True
+2026-11-28 05:55:53 [info     ] stream_processor_initialized
+INFO:     Application startup complete.
+ERROR:    [Errno 10048] error while attempting to bind on address ('0.0.0.0', 8003): [winerror 10048] only one usage of each socket address (protocol/network address/port) is normally permitted
+INFO:     Waiting for application shutdown.
+2026-11-28 05:55:53 [info     ] shutting_down
+2026-11-28 05:55:53 [info     ] websocket_manager_stopped
+2026-11-28 05:55:53 [info     ] websocket_closed
+2026-11-28 05:55:53 [info     ] mock_kafka_consumer_stopped
+2026-11-28 05:55:53 [info     ] mock_kafka_producer_stopped
+2026-11-28 05:55:53 [info     ] stream_processor_stopped
+2026-11-28 05:55:53 [info     ] mock_kafka_producer_stopped
+INFO:     Application shutdown complete.

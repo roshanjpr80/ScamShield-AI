@@ -13,13 +13,28 @@ from datetime import datetime
 from pathlib import Path
 import json
 
-import mlflow
-from mlflow.tracking import MlflowClient
-from mlflow.entities.model_registry import ModelVersion, RegisteredModel
-
 from .mlflow_config import MLflowManager, get_mlflow_manager
 
 logger = logging.getLogger(__name__)
+
+# Lazy imports
+_mlflow = None
+_mlflow_client = None
+_mlflow_model_registry = None
+
+def _get_mlflow():
+    global _mlflow, _mlflow_client, _mlflow_model_registry, MlflowClient, ModelVersion, RegisteredModel
+    if _mlflow is None:
+        import mlflow
+        from mlflow.tracking import MlflowClient as _MlflowClient
+        from mlflow.entities.model_registry import ModelVersion as _ModelVersion, RegisteredModel as _RegisteredModel
+        _mlflow = mlflow
+        _mlflow_client = _MlflowClient
+        _mlflow_model_registry = (_ModelVersion, _RegisteredModel)
+        MlflowClient = _MlflowClient
+        ModelVersion = _ModelVersion
+        RegisteredModel = _RegisteredModel
+    return _mlflow, _mlflow_client, _mlflow_model_registry
 
 
 class ModelStage(Enum):
@@ -101,7 +116,7 @@ class ModelRegistry:
     ) -> ModelVersion:
         """Register a new model version."""
         # Register in MLflow
-        mv = mlflow.register_model(model_uri, name, tags=tags)
+        mv = _get_mlflow()[0].register_model(model_uri, name, tags=tags)
 
         # Add custom tags
         custom_tags = {
@@ -209,7 +224,7 @@ class ModelRegistry:
         else:
             model_uri = f"models:/{name}/Production"
 
-        return mlflow.pyfunc.load_model(model_uri)
+        return _get_mlflow()[0].pyfunc.load_model(model_uri)
 
     def load_model_by_type(
         self,

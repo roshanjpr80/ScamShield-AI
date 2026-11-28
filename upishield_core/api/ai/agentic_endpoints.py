@@ -420,7 +420,11 @@ async def analyze_fraud_stream(
                         details=ti.get("details", {})
                     ))
 
-            # Prepare initial state
+            # Set global LLM manager for agent nodes to use
+            from upishield_core.ai.agentic_workflow import set_workflow_llm_manager
+            set_workflow_llm_manager(workflow.llm_manager)
+
+            # Prepare initial state (without LLMManager - agents use global)
             initial_state: Dict[str, Any] = {
                 "input_type": request.input_type,
                 "raw_input": request.raw_input,
@@ -450,7 +454,6 @@ async def analyze_fraud_stream(
                 "total_time_ms": 0.0,
                 "errors": [],
                 "agent_trace": [],
-                "_llm_manager": workflow.llm_manager
             }
 
             # Execute workflow with streaming updates
@@ -468,6 +471,12 @@ async def analyze_fraud_stream(
             final_state = await workflow.workflow.ainvoke(initial_state, config=config)
 
             # Send final result
+            report = final_state.get("report")
+            report_dict = report.__dict__ if report else None
+
+            features = final_state.get("features", FraudFeatures())
+            features_dict = features.to_dict() if hasattr(features, 'to_dict') else {}
+
             result = FraudDetectionResult(
                 request_id=final_state["request_id"],
                 input_type=final_state["input_type"],
@@ -475,12 +484,12 @@ async def analyze_fraud_stream(
                 risk_level=final_state["final_decision"].risk_level if final_state.get("final_decision") else RiskLevel.MEDIUM,
                 final_score=final_state["final_decision"].final_score if final_state.get("final_decision") else 0.0,
                 confidence=final_state["final_decision"].confidence if final_state.get("final_decision") else 0.0,
-                features=final_state.get("features", FraudFeatures()),
+                features=features_dict,
                 matched_patterns=final_state.get("matched_patterns", []),
                 model_predictions=final_state.get("model_predictions", []),
                 rule_results=final_state.get("rule_results", []),
                 threat_intel_results=final_state.get("threat_intel_results", []),
-                report=final_state.get("report"),
+                report=report_dict,
                 investigation_hypothesis=final_state.get("investigation_hypothesis"),
                 investigation_actions=final_state.get("investigation_actions", []),
                 processing_time_ms=final_state.get("total_time_ms", 0.0),
@@ -488,7 +497,7 @@ async def analyze_fraud_stream(
                 errors=final_state.get("errors", [])
             )
 
-            yield f"data: {json.dumps({'type': 'complete', 'result': result.__dict__})}\n\n"
+            yield f"data: {json.dumps({'type': 'complete', 'result': result.__dict__}, default=str)}\n\n"
 
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"

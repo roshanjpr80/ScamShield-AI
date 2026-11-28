@@ -11,24 +11,47 @@ Transformer-based classifier for detecting fraudulent job postings including:
 
 import json
 import pickle
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
 from enum import Enum
 
 import numpy as np
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from torch.utils.data import Dataset, DataLoader
-from transformers import (
-    AutoTokenizer,
-    AutoModel,
-    AutoConfig,
-    get_linear_schedule_with_warmup,
-)
 from sklearn.metrics import classification_report, confusion_matrix, f1_score
 from tqdm import tqdm
+
+# Lazy imports for heavy ML libraries
+_torch = None
+_torch_nn = None
+_torch_nn_functional = None
+_torch_utils_data = None
+_transformers = None
+
+def _get_torch():
+    global _torch, _torch_nn, _torch_nn_functional, _torch_utils_data
+    if _torch is None:
+        import torch
+        import torch.nn as nn
+        import torch.nn.functional as F
+        from torch.utils.data import Dataset, DataLoader
+        _torch = torch
+        _torch_nn = nn
+        _torch_nn_functional = F
+        _torch_utils_data = (Dataset, DataLoader)
+    return _torch, _torch_nn, _torch_nn_functional, _torch_utils_data
+
+def _get_transformers():
+    global _transformers
+    if _transformers is None:
+        from transformers import (
+            AutoTokenizer,
+            AutoModel,
+            AutoConfig,
+            get_linear_schedule_with_warmup,
+        )
+        _transformers = (AutoTokenizer, AutoModel, AutoConfig, get_linear_schedule_with_warmup)
+    return _transformers
 
 
 class JobFraudCategory(str, Enum):
@@ -64,7 +87,7 @@ class JobFraudPrediction:
     metadata: Dict[str, Any]
 
 
-class JobPostingDataset(Dataset):
+class JobPostingDataset:
     """PyTorch dataset for job posting fraud detection."""
 
     def __init__(
@@ -82,6 +105,7 @@ class JobPostingDataset(Dataset):
         education: List[str] = None,
         platforms: List[str] = None,
     ):
+        _, _, _, (Dataset, DataLoader) = _get_torch()
         self.titles = titles
         self.descriptions = descriptions
         self.companies = companies
@@ -121,7 +145,6 @@ class JobPostingDataset(Dataset):
         # Experience
         exp_text = self.experience_required[idx] if idx < len(self.experience_required) else ""
         exp_years = 0
-        import re
         exp_match = re.search(r'(\d+)', exp_text)
         if exp_match:
             exp_years = int(exp_match.group(1))
@@ -147,7 +170,8 @@ class JobPostingDataset(Dataset):
             platform_risk,
         ], dtype=np.float32)
 
-    def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
+    def __getitem__(self, idx: int) -> Dict[str, Any]:
+        torch, _, _, _ = _get_torch()
         text = self._combine_text(idx)
         label = self.labels[idx]
 
@@ -172,7 +196,7 @@ class JobPostingDataset(Dataset):
         return item
 
 
-class JobFraudTransformer(nn.Module):
+class JobFraudTransformer:
     """Transformer-based job fraud classifier with structured feature fusion."""
 
     def __init__(
@@ -184,6 +208,9 @@ class JobFraudTransformer(nn.Module):
         dropout: float = 0.3,
         freeze_backbone: bool = False,
     ):
+        torch, nn, F, _ = _get_torch()
+        AutoTokenizer, AutoModel, AutoConfig, _ = _get_transformers()
+
         super().__init__()
         self.model_name = model_name
         self.num_categories = num_categories
@@ -250,11 +277,12 @@ class JobFraudTransformer(nn.Module):
 
     def forward(
         self,
-        input_ids: torch.Tensor,
-        attention_mask: torch.Tensor,
-        structured_features: torch.Tensor = None,
-    ) -> Dict[str, torch.Tensor]:
+        input_ids: "torch.Tensor",
+        attention_mask: "torch.Tensor",
+        structured_features: "torch.Tensor" = None,
+    ) -> Dict[str, "torch.Tensor"]:
         """Forward pass."""
+        torch, _, F, _ = _get_torch()
         outputs = self.backbone(input_ids=input_ids, attention_mask=attention_mask)
         pooled_output = outputs.last_hidden_state[:, 0]  # [CLS] token
 
@@ -327,6 +355,9 @@ class JobFraudDetector:
         self.model_dir = Path(model_dir)
         self.model_dir.mkdir(parents=True, exist_ok=True)
 
+        torch, _, _, _ = _get_torch()
+        AutoTokenizer, _, _, _ = _get_transformers()
+
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         self.model: Optional[JobFraudTransformer] = None
@@ -350,6 +381,7 @@ class JobFraudDetector:
 
     def load_model(self, model_path: str = None) -> JobFraudTransformer:
         """Load a trained model."""
+        torch, _, _, _ = _get_torch()
         path = Path(model_path) if model_path else self.model_dir / "best_model.pt"
 
         if not path.exists():
@@ -443,6 +475,8 @@ class JobFraudDetector:
             )
 
         # Optimizer and scheduler
+        torch, nn, _, _ = _get_torch()
+        _, _, _, get_linear_schedule_with_warmup = _get_transformers()
         optimizer = torch.optim.AdamW(
             self.model.parameters(),
             lr=learning_rate,
@@ -740,6 +774,8 @@ class JobFraudDetector:
         education = education or [""] * n
         platforms = platforms or [""] * n
 
+        _, _, _, (Dataset, DataLoader) = _get_torch()
+        torch, _, F, _ = _get_torch()
         dataset = JobPostingDataset(
             titles=titles,
             descriptions=descriptions,

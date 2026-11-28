@@ -506,8 +506,11 @@ class EnsembleInference:
             if predictions:
                 return self.ensemble_score_with_metadata(predictions)
 
-        # Fall back to sklearn models
-        if hasattr(self, 'sklearn_models') and self.sklearn_models and hasattr(self, 'scaler') and self.scaler is not None:
+        # Fall back to sklearn models (lazy init)
+        self._ensure_sklearn_initialized()
+
+        # Scale features if scaler is available
+        if self.scaler is not None:
             input_tensor = self.scaler.transform(input_tensor)
 
         # Run sklearn models

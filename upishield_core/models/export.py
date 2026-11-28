@@ -11,8 +11,6 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
 import onnx
 import onnxruntime as ort
-import torch
-import torch.nn as nn
 from onnxruntime.quantization import (
     QuantType,
     quantize_dynamic,
@@ -20,6 +18,19 @@ from onnxruntime.quantization import (
     CalibrationDataReader,
 )
 from onnxruntime.quantization.shape_inference import quant_pre_process
+
+# Lazy imports for PyTorch (heavy, only needed during model export)
+_torch = None
+_torch_nn = None
+
+def _get_torch():
+    global _torch, _torch_nn
+    if _torch is None:
+        import torch
+        import torch.nn as nn
+        _torch = torch
+        _torch_nn = nn
+    return _torch, _torch_nn
 
 
 class OnnxDemoDataReader(CalibrationDataReader):
@@ -43,7 +54,7 @@ class OnnxDemoDataReader(CalibrationDataReader):
 
 
 def export_to_onnx(
-    model: nn.Module,
+    model: Any,  # nn.Module
     output_path: Union[str, Path],
     input_shape: Tuple[int, ...] = (1, 50),
     input_names: List[str] = None,
@@ -70,6 +81,7 @@ def export_to_onnx(
     Returns:
         Path to exported model
     """
+    torch, nn = _get_torch()
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -378,7 +390,7 @@ def compare_models(
 
 
 def export_pipeline(
-    pytorch_model: nn.Module,
+    pytorch_model: Any,  # nn.Module
     output_dir: Union[str, Path],
     model_name: str,
     calibration_data: Optional[np.ndarray] = None,

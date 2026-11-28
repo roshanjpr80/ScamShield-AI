@@ -692,6 +692,9 @@ async def model_ensemble_agent(state: AgentState) -> AgentState:
             if ensemble.scaler is not None:
                 input_tensor = ensemble.scaler.transform(input_tensor)
 
+            # Ensure sklearn models are initialized
+            ensemble._ensure_sklearn_initialized()
+
             predictions = []
             for name in ensemble.sklearn_models.keys():
                 model = ensemble.sklearn_models[name]
