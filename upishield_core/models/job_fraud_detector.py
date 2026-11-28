@@ -410,7 +410,7 @@ class JobFraudDetector:
         weight_decay: float = 0.01,
         warmup_steps: int = 500,
         max_grad_norm: float = 1.0,
-        class_weights: torch.Tensor = None,
+        class_weights: "torch.Tensor" = None,
         early_stopping_patience: int = 3,
         save_best: bool = True,
     ) -> Dict[str, List[float]]:
