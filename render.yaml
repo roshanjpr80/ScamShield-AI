@@ -1,0 +1,63 @@
+services:
+  # Backend API Service (FastAPI)
+  - type: web
+    name: scamshield-api
+    runtime: python
+    plan: free
+    region: oregon
+    buildCommand: |
+      pip install --upgrade pip
+      pip install -r requirements.txt
+    startCommand: uvicorn upishield_core.api.main:app --host 0.0.0.0 --port $PORT --workers 1
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11"
+      - key: PORT
+        value: "8003"
+      - key: USE_MOCK_KAFKA
+        value: "true"
+      - key: OTEL_CONSOLE_EXPORT
+        value: "true"
+      - key: OTEL_SAMPLE_RATE
+        value: "0.1"
+      - key: RENDER
+        value: "true"
+    healthCheckPath: /health
+    autoDeploy: true
+
+  # Frontend Service (Next.js)
+  - type: web
+    name: scamshield-frontend
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: |
+      cd frontend
+      npm ci
+      npm run build
+    startCommand: |
+      cd frontend
+      npm start
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: PORT
+        value: "3000"
+      - key: NEXT_PUBLIC_API_URL
+        value: "https://scamshield-api.onrender.com"
+    healthCheckPath: /
+    autoDeploy: true
+
+# Optional: Redis for feature store (upgrade to paid plan for production)
+# keyvalue:
+#   - name: scamshield-redis
+#     plan: free
+#     region: oregon
+#     maxmemoryPolicy: allkeys-lru
+
+# Optional: PostgreSQL for persistent storage (upgrade to paid plan for production)
+# databases:
+#   - name: scamshield-db
+#     databaseName: scamshield
+#     plan: free
+#     region: oregon
